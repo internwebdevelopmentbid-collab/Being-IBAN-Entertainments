@@ -1,0 +1,169 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  --color-studio-red: #e50914;
+  --color-studio-black: #050505;
+  --color-studio-dark: #0b0b0b;
+  --color-studio-gray: #171717;
+
+  --font-display: "Arial", "Helvetica Neue", sans-serif;
+  --font-sans: "Arial", "Helvetica Neue", sans-serif;
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: white;
+  background: #050505;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: #050505;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #050505;
+  color: white;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: #e50914;
+  color: white;
+}
+
+/* Studio utility classes */
+
+.container-studio {
+  width: 100%;
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.text-studio-red {
+  color: #e50914;
+}
+
+.bg-studio-red {
+  background-color: #e50914;
+}
+
+.bg-studio-black {
+  background-color: #050505;
+}
+
+/* Portfolio Gallery Scrollbar */
+
+.gallery-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #e50914 transparent;
+}
+
+.gallery-scrollbar::-webkit-scrollbar {
+  width: 2px;
+}
+
+.gallery-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 0;
+}
+
+.gallery-scrollbar::-webkit-scrollbar-thumb {
+  width: 2px;
+  background: #e50914;
+  border-radius: 0;
+}
+
+.gallery-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ff1a24;
+}
+
+/* Mobile Menu Scrollbar */
+
+.mobile-menu-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #e50914 transparent;
+}
+
+.mobile-menu-scrollbar::-webkit-scrollbar {
+  width: 2px;
+}
+
+.mobile-menu-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mobile-menu-scrollbar::-webkit-scrollbar-thumb {
+  background: #e50914;
+  border-radius: 0;
+}
+
+.mobile-menu-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ff1a24;
+}
+
+/* Terms Page */
+
+.terms-content h3 {
+  margin-top: 2rem;
+  margin-bottom: -0.75rem;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #050505;
+}
+
+/* Admin Page */
+
+.admin-sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #e50914 transparent;
+}
+
+.admin-sidebar-scrollbar::-webkit-scrollbar {
+  width: 3px;
+}
+
+.admin-sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: #e50914;
+  border-radius: 0;
+}
+
+.admin-sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ff1a24;
+}
