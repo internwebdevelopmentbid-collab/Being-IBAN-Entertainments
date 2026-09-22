@@ -5,8 +5,7 @@ import { ArrowUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Card, PageTitle } from "../components/AdminUI";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { adminJson } from "../utils/authFetch";
 
 export default function Dashboard() {
   const [home, setHome] = useState(null);
@@ -19,91 +18,96 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
 
+        /*
+         * Use the authenticated admin request helper.
+         *
+         * If the access token has expired, adminJson()
+         * automatically refreshes the session and retries
+         * the original request.
+         */
         const [
-          homeResponse,
-          projectsResponse,
-          sponsorsResponse,
-          membersResponse,
-          jobsResponse,
+          homeResult,
+          projectsResult,
+          sponsorsResult,
+          membersResult,
+          jobsResult,
         ] = await Promise.all([
-          fetch(`${API_URL}/api/home`),
-          fetch(`${API_URL}/api/projects`),
-          fetch(`${API_URL}/api/sponsors`),
-          fetch(`${API_URL}/api/members`),
-          fetch(`${API_URL}/api/jobs`),
+          adminJson("/api/home"),
+          adminJson("/api/projects"),
+          adminJson("/api/sponsors"),
+          adminJson("/api/members"),
+          adminJson("/api/jobs"),
         ]);
+
+        if (!mounted) return;
 
         /* ==================================================
            HOME
         ================================================== */
 
-        if (homeResponse.ok) {
-          const homeResult = await homeResponse.json();
-
-          if (homeResult.success) {
-            setHome(homeResult.home);
-          }
+        if (homeResult?.success) {
+          setHome(homeResult.home || null);
         }
 
         /* ==================================================
            PROJECTS
         ================================================== */
 
-        if (projectsResponse.ok) {
-          const projectsResult = await projectsResponse.json();
-
-          if (projectsResult.success) {
-            setProjects(projectsResult.projects || []);
-          }
+        if (projectsResult?.success) {
+          setProjects(projectsResult.projects || []);
         }
 
         /* ==================================================
            SPONSORS
         ================================================== */
 
-        if (sponsorsResponse.ok) {
-          const sponsorsResult = await sponsorsResponse.json();
-
-          if (sponsorsResult.success) {
-            setSponsors(sponsorsResult.sponsors || []);
-          }
+        if (sponsorsResult?.success) {
+          setSponsors(sponsorsResult.sponsors || []);
         }
 
         /* ==================================================
            MEMBERS
         ================================================== */
 
-        if (membersResponse.ok) {
-          const membersResult = await membersResponse.json();
-
-          if (membersResult.success) {
-            setMembers(membersResult.members || []);
-          }
+        if (membersResult?.success) {
+          setMembers(membersResult.members || []);
         }
 
         /* ==================================================
            JOBS
         ================================================== */
 
-        if (jobsResponse.ok) {
-          const jobsResult = await jobsResponse.json();
-
-          if (jobsResult.success) {
-            setJobs(jobsResult.jobs || []);
-          }
+        if (jobsResult?.success) {
+          setJobs(jobsResult.jobs || []);
         }
       } catch (error) {
         console.error("Dashboard data error:", error);
+
+        /*
+         * A 401 after the refresh attempt means the admin
+         * session is no longer valid.
+         *
+         * ProtectedAdminRoute will handle redirecting
+         * the user to the login page.
+         */
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchDashboardData();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* ==================================================
@@ -115,6 +119,10 @@ export default function Dashboard() {
 
     return status === "published";
   });
+
+  /* ==================================================
+     HERO MEDIA
+  ================================================== */
 
   const heroVideo =
     home?.hero?.video?.url || home?.hero?.video?.playbackUrl || "";
@@ -183,7 +191,9 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {/* HERO TEXT */}
+                {/* ==================================================
+                    HERO TEXT
+                ================================================== */}
 
                 <div className="mt-5">
                   <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-red-500">
@@ -225,7 +235,9 @@ export default function Dashboard() {
               </div>
 
               <div className="divide-y divide-white/10">
-                {/* PROJECTS */}
+                {/* ==================================================
+                    PROJECTS
+                ================================================== */}
 
                 <Link
                   to="/admin/projects"
@@ -246,7 +258,9 @@ export default function Dashboard() {
                   </span>
                 </Link>
 
-                {/* SPONSORS */}
+                {/* ==================================================
+                    SPONSORS
+                ================================================== */}
 
                 <Link
                   to="/admin/sponsors"
@@ -267,7 +281,9 @@ export default function Dashboard() {
                   </span>
                 </Link>
 
-                {/* MEMBERS */}
+                {/* ==================================================
+                    MEMBERS
+                ================================================== */}
 
                 <Link
                   to="/admin/members"
@@ -288,7 +304,9 @@ export default function Dashboard() {
                   </span>
                 </Link>
 
-                {/* CAREERS */}
+                {/* ==================================================
+                    CAREERS
+                ================================================== */}
 
                 <Link
                   to="/admin/careers"

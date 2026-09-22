@@ -52,7 +52,7 @@ export default function Services() {
         setLoading(true);
         setError("");
 
-        const response = await fetch(`${API_URL}/services/active`);
+        const response = await fetch(`${API_URL}/api/services/active`);
 
         const data = await response.json();
 
@@ -81,7 +81,7 @@ export default function Services() {
     const fetchHeroImage = async () => {
       try {
         const response = await fetch(
-          `${API_URL}/media?page=services&type=cover`,
+          `${API_URL}/api/media?page=services&type=cover`,
         );
 
         const data = await response.json();

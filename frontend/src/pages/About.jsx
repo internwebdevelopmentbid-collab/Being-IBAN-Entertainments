@@ -19,7 +19,9 @@ export default function About() {
         setTeamLoading(true);
         setTeamError("");
 
-        const response = await fetch("/api/members/active");
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+        const response = await fetch(`${apiUrl}/api/members/active`);
         const result = await response.json();
 
         if (!response.ok) {

@@ -1,19 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-
-/*
- * Prevent multiple requests from refreshing the session
- * at the same time.
- *
- * Example:
- *
- * Request A -> 401
- * Request B -> 401
- * Request C -> 401
- *
- * Only ONE refresh request is sent.
- *
- * A, B and C wait for the same refresh promise.
- */
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 let refreshPromise = null;
 
@@ -22,58 +7,46 @@ let refreshPromise = null;
 ================================================== */
 
 const refreshAccessToken = async () => {
-  /*
-   * If another request is already refreshing,
-   * wait for that same request.
-   */
-  if (refreshPromise) {
-    return refreshPromise;
-  }
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_URL}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then(async (response) => {
+        let data = null;
 
-  refreshPromise = (async () => {
-    try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok) {
+          const error = new Error(data?.message || "Session refresh failed");
+
+          error.status = response.status;
+          error.data = data;
+
+          throw error;
+        }
+
+        return data;
+      })
+      .finally(() => {
+        refreshPromise = null;
       });
-
-      if (!response.ok) {
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      console.error("Refresh request failed:", error);
-
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
+  }
 
   return refreshPromise;
 };
 
 /* ==================================================
-   AUTH FETCH
+   AUTHENTICATED FETCH
 ================================================== */
 
-/**
- * Use this instead of fetch() for protected admin API calls.
- *
- * It:
- *
- * 1. Sends cookies.
- * 2. Makes the normal request.
- * 3. If access token expired, refreshes it.
- * 4. Retries the original request once.
- * 5. Does NOT create an infinite refresh loop.
- */
-
-export const authFetch = async (url, options = {}) => {
+export const adminFetch = async (path, options = {}, retry = true) => {
   const requestOptions = {
     ...options,
-
     credentials: "include",
 
     headers: {
@@ -81,56 +54,32 @@ export const authFetch = async (url, options = {}) => {
     },
   };
 
-  let response = await fetch(url, requestOptions);
+  let response = await fetch(`${API_URL}${path}`, requestOptions);
 
   /*
-   * Normal successful response.
+   * Access token expired.
+   *
+   * Refresh once, then retry the original request.
    */
-  if (response.status !== 401) {
-    return response;
+  if (response.status === 401 && retry && path !== "/api/auth/refresh") {
+    try {
+      await refreshAccessToken();
+
+      response = await fetch(`${API_URL}${path}`, requestOptions);
+    } catch (error) {
+      throw error;
+    }
   }
-
-  /*
-   * Access token may have expired.
-   *
-   * Try to refresh the session.
-   */
-  const refreshed = await refreshAccessToken();
-
-  /*
-   * Refresh failed.
-   *
-   * Return the original 401 response.
-   *
-   * The protected route / application can then
-   * redirect the user to login.
-   */
-  if (!refreshed) {
-    return response;
-  }
-
-  /*
-   * Access token has been replaced.
-   *
-   * Retry the original request exactly once.
-   */
-  response = await fetch(url, requestOptions);
 
   return response;
 };
 
 /* ==================================================
-   AUTH JSON HELPER
+   PARSE JSON
 ================================================== */
 
-/**
- * Optional convenience helper.
- *
- * Useful for admin APIs returning JSON.
- */
-
-export const authFetchJson = async (url, options = {}) => {
-  const response = await authFetch(url, options);
+export const adminJson = async (path, options = {}) => {
+  const response = await adminFetch(path, options);
 
   let data = null;
 
@@ -140,29 +89,69 @@ export const authFetchJson = async (url, options = {}) => {
     data = null;
   }
 
-  return {
-    response,
-    data,
-  };
+  if (!response.ok) {
+    const error = new Error(data?.message || "Request failed");
+
+    error.status = response.status;
+    error.data = data;
+
+    throw error;
+  }
+
+  return data;
+};
+
+/* ==================================================
+   LOGIN
+================================================== */
+
+export const adminLogin = async (email, password) => {
+  return adminJson("/api/auth/login", {
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json",
+    },
+
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  });
+};
+
+/* ==================================================
+   CURRENT ADMIN
+================================================== */
+
+export const getCurrentAdmin = async () => {
+  return adminJson("/api/auth/me", {
+    method: "GET",
+  });
 };
 
 /* ==================================================
    LOGOUT
 ================================================== */
 
-export const logoutAdmin = async () => {
-  try {
-    await fetch(`${API_URL}/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
-  } catch (error) {
-    console.error("Logout request failed:", error);
-  }
+export const adminLogout = async () => {
+  return adminJson("/api/auth/logout", {
+    method: "POST",
+  });
 };
 
 /* ==================================================
-   EXPORT API URL
+   LOGOUT ALL SESSIONS
+================================================== */
+
+export const adminLogoutAll = async () => {
+  return adminJson("/api/auth/logout-all", {
+    method: "POST",
+  });
+};
+
+/* ==================================================
+   API URL
 ================================================== */
 
 export { API_URL };

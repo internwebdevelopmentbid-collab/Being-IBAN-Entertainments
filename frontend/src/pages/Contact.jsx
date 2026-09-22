@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Mail, MapPin, Phone, Clock } from "lucide-react";
 import toast from "react-hot-toast";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function Contact() {
   const [heroImage, setHeroImage] = useState("");
 
@@ -14,11 +16,15 @@ export default function Contact() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  /* ==================================================
+     FETCH HERO IMAGE
+  ================================================== */
+
   useEffect(() => {
     const fetchHeroImage = async () => {
       try {
         const response = await fetch(
-          "http://localhost:5000/api/media?page=contact&type=cover",
+          `${API_URL}/api/media?page=services&type=cover`,
         );
 
         if (!response.ok) {
@@ -39,6 +45,10 @@ export default function Contact() {
     fetchHeroImage();
   }, []);
 
+  /* ==================================================
+     FORM CHANGE
+  ================================================== */
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -48,17 +58,23 @@ export default function Contact() {
     }));
   };
 
+  /* ==================================================
+     FORM SUBMIT
+  ================================================== */
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("http://localhost:5000/api/contact", {
+      const response = await fetch(`${API_URL}/api/contact`, {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
         },
+
         body: JSON.stringify(formData),
       });
 
@@ -87,7 +103,10 @@ export default function Contact() {
 
   return (
     <>
-      {/* HERO */}
+      {/* ==================================================
+          HERO
+      ================================================== */}
+
       <section className="relative flex min-h-[70vh] items-end overflow-hidden bg-studio-black px-6 pb-20 pt-32 sm:min-h-[72vh] lg:min-h-[78vh] lg:px-10 lg:pb-28 lg:pt-40">
         <div className="absolute inset-0">
           {heroImage && (
@@ -121,10 +140,16 @@ export default function Contact() {
         </div>
       </section>
 
-      {/* CONTACT SECTION */}
+      {/* ==================================================
+          CONTACT SECTION
+      ================================================== */}
+
       <section className="bg-white px-6 py-24 text-black lg:px-10 lg:py-32">
         <div className="container-studio grid gap-20 lg:grid-cols-3">
-          {/* CONTACT INFORMATION */}
+          {/* ==================================================
+              CONTACT INFORMATION
+          ================================================== */}
+
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-studio-red">
               Start a Project
@@ -138,6 +163,7 @@ export default function Contact() {
 
             <div className="mt-12 space-y-8 text-sm">
               {/* EMAIL */}
+
               <div className="flex items-start gap-4">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-studio-red text-white">
                   <Mail size={17} strokeWidth={1.8} />
@@ -158,6 +184,7 @@ export default function Contact() {
               </div>
 
               {/* PHONE */}
+
               <div className="flex items-start gap-4">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-studio-red text-white">
                   <Phone size={17} strokeWidth={1.8} />
@@ -178,6 +205,7 @@ export default function Contact() {
               </div>
 
               {/* LOCATION */}
+
               <div className="flex items-start gap-4">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-studio-red text-white">
                   <MapPin size={17} strokeWidth={1.8} />
@@ -201,6 +229,7 @@ export default function Contact() {
               </div>
 
               {/* BUSINESS HOURS */}
+
               <div className="flex items-start gap-4">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-studio-red text-white">
                   <Clock size={17} strokeWidth={1.8} />
@@ -236,7 +265,10 @@ export default function Contact() {
             </div>
           </div>
 
-          {/* FORM */}
+          {/* ==================================================
+              FORM
+          ================================================== */}
+
           <form onSubmit={handleSubmit} className="space-y-8 lg:col-span-2">
             <div className="grid gap-8 md:grid-cols-2">
               <Field
@@ -295,7 +327,10 @@ export default function Contact() {
           </form>
         </div>
 
-        {/* MAP */}
+        {/* ==================================================
+            MAP
+        ================================================== */}
+
         <div className="mx-auto mt-16 w-full max-w-[1260px] overflow-hidden border border-black/10">
           <iframe
             title="Map"
@@ -308,6 +343,10 @@ export default function Contact() {
     </>
   );
 }
+
+/* ==================================================
+   FORM FIELD
+================================================== */
 
 function Field({
   label,

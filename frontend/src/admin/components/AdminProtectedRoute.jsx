@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
-import { API_URL, authFetch } from "../utils/authFetch";
+import { getCurrentAdmin } from "../utils/authFetch";
 
 export default function AdminProtectedRoute() {
   const location = useLocation();
@@ -16,35 +16,34 @@ export default function AdminProtectedRoute() {
         setStatus("checking");
 
         /*
-         * First check the current access token.
+         * Check the current admin session.
          *
-         * authFetch() automatically attempts
-         * /auth/refresh if /auth/me returns 401.
+         * getCurrentAdmin() uses:
+         *
+         * GET /api/auth/me
+         *
+         * If the access token has expired,
+         * adminFetch() automatically calls:
+         *
+         * POST /api/auth/refresh
+         *
+         * and retries /api/auth/me.
          */
-        const response = await authFetch(`${API_URL}/auth/me`, {
-          method: "GET",
-        });
+        await getCurrentAdmin();
 
         if (!mounted) {
           return;
         }
 
-        if (response.ok) {
-          setStatus("authenticated");
-          return;
-        }
-
-        /*
-         * Both access token and refresh/session token
-         * are invalid/expired.
-         */
-        setStatus("unauthenticated");
+        setStatus("authenticated");
       } catch (error) {
         console.error("Admin auth check failed:", error);
 
-        if (mounted) {
-          setStatus("unauthenticated");
+        if (!mounted) {
+          return;
         }
+
+        setStatus("unauthenticated");
       }
     };
 
@@ -56,7 +55,7 @@ export default function AdminProtectedRoute() {
   }, []);
 
   /* ==================================================
-     CHECKING
+     CHECKING SESSION
   ================================================== */
 
   if (status === "checking") {
@@ -74,16 +73,18 @@ export default function AdminProtectedRoute() {
   }
 
   /* ==================================================
-     UNAUTHENTICATED
+     NOT AUTHENTICATED
   ================================================== */
 
   if (status === "unauthenticated") {
+    const returnTo = location.pathname + location.search + location.hash;
+
     return (
       <Navigate
         to="/admin/login"
         replace
         state={{
-          from: location.pathname,
+          from: returnTo,
         }}
       />
     );

@@ -65,7 +65,7 @@ function AdminApp() {
           {/* /admin/contacts */}
           <Route path="contacts" element={<ContactManager />} />
 
-          {/* /admin/contacts */}
+          {/* /admin/poster */}
           <Route path="poster" element={<PosterManager />} />
 
           {/* Unknown admin route */}

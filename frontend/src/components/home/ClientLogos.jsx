@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
-const API_URL = "/api/sponsors/active";
+const API_URL = `${import.meta.env.VITE_API_URL}/api/sponsors/active`;
 
 export default function ClientLogos() {
   const [sponsors, setSponsors] = useState([]);
