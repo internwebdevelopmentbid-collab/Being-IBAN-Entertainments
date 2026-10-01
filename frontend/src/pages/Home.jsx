@@ -4,6 +4,7 @@ import ServicesSnapshot from "../components/home/ServicesSnapshot";
 import AboutTeaser from "../components/home/AboutTeaser";
 import ClientLogos from "../components/home/ClientLogos";
 import Socials from "../components/home/Socials";
+import SisterCompany from "../components/home/SisterCompany";
 import LatestBlog from "../components/home/LatestBlog";
 import CareersTeaser from "../components/home/CareersTeaser";
 import ContactCTA from "../components/home/ContactCTA";
@@ -22,6 +23,8 @@ export default function Home() {
       <ClientLogos />
 
       <Socials />
+
+      <SisterCompany />
 
       <LatestBlog />
 
