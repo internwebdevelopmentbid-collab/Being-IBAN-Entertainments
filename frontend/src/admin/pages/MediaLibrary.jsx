@@ -10,40 +10,132 @@ import {
   Select,
 } from "../components/AdminUI";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+/* ==================================================
+   API
+================================================== */
+
+const API_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:5000"
+).replace(/\/$/, "");
+
+/* ==================================================
+   PAGES
+================================================== */
 
 const PAGES = [
-  { value: "about", label: "About" },
-  { value: "services", label: "Services" },
-  { value: "portfolio", label: "Portfolio" },
-  { value: "careers", label: "Careers" },
-  { value: "blog", label: "Blog" },
-  { value: "contact", label: "Contact Us" },
+  {
+    value: "about",
+    label: "About",
+  },
+  {
+    value: "services",
+    label: "Services",
+  },
+  {
+    value: "portfolio",
+    label: "Portfolio",
+  },
+  {
+    value: "careers",
+    label: "Careers",
+  },
+  {
+    value: "blog",
+    label: "Blog",
+  },
+  {
+    value: "contact",
+    label: "Contact Us",
+  },
 ];
 
-function getDefaultType(page) {
-  return page === "portfolio" ? "cover" : "cover";
+/* ==================================================
+   HELPERS
+================================================== */
+
+/**
+ * Safely parse a fetch response.
+ *
+ * Some reverse proxies return an empty body or plain text.
+ * Calling response.json() directly would then throw:
+ *
+ * Failed to execute 'json' on 'Response':
+ * Unexpected end of JSON input
+ */
+async function parseResponse(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      success: false,
+      message: text,
+    };
+  }
 }
 
-function getFolder(page, type) {
-  return `media/${page}/${type}`;
+/**
+ * Centralized media request.
+ *
+ * credentials: include is important because the backend
+ * protects POST / PUT / DELETE with requireAdmin.
+ */
+async function mediaRequest(path, options = {}) {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+
+    credentials: "include",
+
+    headers: {
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await parseResponse(response);
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.message ||
+        data?.error ||
+        `Request failed with HTTP ${response.status}.`,
+    );
+
+    error.status = response.status;
+    error.data = data;
+
+    throw error;
+  }
+
+  return data;
 }
+
+/* ==================================================
+   COMPONENT
+================================================== */
 
 export default function MediaLibrary() {
   const [media, setMedia] = useState([]);
 
   const [loading, setLoading] = useState(true);
+
   const [saving, setSaving] = useState(false);
 
   const [editing, setEditing] = useState(null);
 
   /*
-   * Multiple files are stored here when adding
-   * Portfolio Gallery images.
+   * Only ONE selected file is allowed.
    */
-  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
 
-  const [previews, setPreviews] = useState([]);
+  /*
+   * Only ONE preview is allowed.
+   */
+  const [preview, setPreview] = useState("");
 
   const [filters, setFilters] = useState({
     page: "",
@@ -68,18 +160,19 @@ export default function MediaLibrary() {
         params.append("type", filters.type);
       }
 
-      const response = await fetch(`${API_URL}/api/media?${params.toString()}`);
+      const query = params.toString();
 
-      const result = await response.json();
+      const path = query ? `/api/media?${query}` : "/api/media";
 
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to fetch media.");
-      }
+      const result = await mediaRequest(path, {
+        method: "GET",
+      });
 
-      setMedia(result.data || []);
+      setMedia(result?.data || []);
     } catch (error) {
-      console.error(error);
-      window.alert(error.message);
+      console.error("Fetch media error:", error);
+
+      window.alert(error?.message || "Failed to fetch media.");
     } finally {
       setLoading(false);
     }
@@ -90,26 +183,23 @@ export default function MediaLibrary() {
   }, [filters.page, filters.type]);
 
   /* ==================================================
-     CLEAN PREVIEWS
+     CLEAN PREVIEW
   ================================================== */
 
   useEffect(() => {
     return () => {
-      previews.forEach((preview) => {
-        if (preview.startsWith("blob:")) {
-          URL.revokeObjectURL(preview);
-        }
-      });
+      if (preview?.startsWith("blob:")) {
+        URL.revokeObjectURL(preview);
+      }
     };
-  }, [previews]);
+  }, [preview]);
 
   /* ==================================================
-     NEW MEDIA
+     CREATE
   ================================================== */
 
   const openCreate = () => {
-    setSelectedFiles([]);
-    setPreviews([]);
+    clearSelectedFile();
 
     setEditing({
       page: "about",
@@ -122,12 +212,11 @@ export default function MediaLibrary() {
   };
 
   /* ==================================================
-     EDIT MEDIA
+     EDIT
   ================================================== */
 
   const openEdit = (item) => {
-    setSelectedFiles([]);
-    setPreviews([]);
+    clearSelectedFile();
 
     setEditing({
       ...item,
@@ -143,27 +232,18 @@ export default function MediaLibrary() {
     const page = event.target.value;
 
     setEditing((current) => {
-      if (!current) return current;
+      if (!current) {
+        return current;
+      }
 
       return {
         ...current,
         page,
-        /*
-         * Only Portfolio can have Gallery.
-         * Everything else is automatically Cover.
-         */
         type: page === "portfolio" ? current.type || "cover" : "cover",
       };
     });
 
-    /*
-     * If changing away from Portfolio,
-     * clear any selected multiple gallery files.
-     */
-    if (page !== "portfolio") {
-      setSelectedFiles([]);
-      setPreviews([]);
-    }
+    clearSelectedFile();
   };
 
   /* ==================================================
@@ -174,7 +254,9 @@ export default function MediaLibrary() {
     const type = event.target.value;
 
     setEditing((current) => {
-      if (!current) return current;
+      if (!current) {
+        return current;
+      }
 
       return {
         ...current,
@@ -182,98 +264,51 @@ export default function MediaLibrary() {
       };
     });
 
-    setSelectedFiles([]);
-    setPreviews([]);
+    clearSelectedFile();
   };
 
   /* ==================================================
-     MULTIPLE FILE SELECTION
+     CLEAR SELECTED FILE
   ================================================== */
 
-  const handleFilesChange = (event) => {
-    const files = Array.from(event.target.files || []);
+  const clearSelectedFile = () => {
+    if (preview?.startsWith("blob:")) {
+      URL.revokeObjectURL(preview);
+    }
 
-    if (!files.length) {
+    setSelectedFile(null);
+    setPreview("");
+  };
+
+  /* ==================================================
+     FILE SELECTION
+  ================================================== */
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
       return;
     }
 
     /*
-     * Multiple files are allowed ONLY for:
+     * Always replace the previous selected file.
      *
-     * Portfolio -> Gallery
+     * Only one file is allowed.
      */
-    const isPortfolioGallery =
-      editing?.page === "portfolio" && editing?.type === "gallery";
-
-    if (!isPortfolioGallery) {
-      const file = files[0];
-
-      setSelectedFiles([file]);
-
-      const preview = URL.createObjectURL(file);
-
-      setPreviews([preview]);
-
-      event.target.value = "";
-
-      return;
+    if (preview?.startsWith("blob:")) {
+      URL.revokeObjectURL(preview);
     }
+
+    const newPreview = URL.createObjectURL(file);
+
+    setSelectedFile(file);
+    setPreview(newPreview);
 
     /*
-     * Portfolio gallery:
-     * retain all selected files.
+     * Allows selecting the same file again later.
      */
-    setSelectedFiles(files);
-
-    const newPreviews = files.map((file) => URL.createObjectURL(file));
-
-    setPreviews(newPreviews);
-
     event.target.value = "";
-  };
-
-  /* ==================================================
-     REMOVE SELECTED FILE
-  ================================================== */
-
-  const removeSelectedFile = (index) => {
-    setSelectedFiles((current) =>
-      current.filter((_, fileIndex) => fileIndex !== index),
-    );
-
-    setPreviews((current) => {
-      const preview = current[index];
-
-      if (preview?.startsWith("blob:")) {
-        URL.revokeObjectURL(preview);
-      }
-
-      return current.filter((_, previewIndex) => previewIndex !== index);
-    });
-  };
-
-  /* ==================================================
-     UPLOAD ONE FILE
-  ================================================== */
-
-  const uploadFile = async (file, page, type) => {
-    const formData = new FormData();
-
-    formData.append("file", file);
-    formData.append("folder", getFolder(page, type));
-
-    const response = await fetch(`${API_URL}/api/upload`, {
-      method: "POST",
-      body: formData,
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || "Image upload failed.");
-    }
-
-    return result.file;
   };
 
   /* ==================================================
@@ -284,23 +319,42 @@ export default function MediaLibrary() {
     const formData = new FormData();
 
     formData.append("file", file);
+
     formData.append("page", page);
+
     formData.append("type", type);
+
     formData.append("title", title || "");
+
     formData.append("alt", alt || "");
 
-    const response = await fetch(`${API_URL}/api/media`, {
+    return mediaRequest("/api/media", {
       method: "POST",
       body: formData,
     });
+  };
 
-    const result = await response.json();
+  /* ==================================================
+     UPDATE MEDIA
+  ================================================== */
 
-    if (!response.ok) {
-      throw new Error(result.message || "Failed to create media record.");
+  const updateMediaRecord = async ({ id, file, title, alt, active }) => {
+    const formData = new FormData();
+
+    formData.append("title", title || "");
+
+    formData.append("alt", alt || "");
+
+    formData.append("active", active ? "true" : "false");
+
+    if (file) {
+      formData.append("file", file);
     }
 
-    return result;
+    return mediaRequest(`/api/media/${id}`, {
+      method: "PUT",
+      body: formData,
+    });
   };
 
   /* ==================================================
@@ -312,102 +366,62 @@ export default function MediaLibrary() {
       return;
     }
 
-    const isNew = !editing._id && !editing.id;
+    const id = editing._id || editing.id;
 
-    /*
-     * New Portfolio Gallery:
-     *
-     * ALL selected files are uploaded.
-     */
-    const isMultipleGallery =
-      isNew && editing.page === "portfolio" && editing.type === "gallery";
+    const isNew = !id;
 
     try {
       setSaving(true);
 
-      /*
-       * ----------------------------------------------
-       * NEW MEDIA
-       * ----------------------------------------------
-       */
+      /* ------------------------------------------------
+         NEW MEDIA
+      ------------------------------------------------ */
 
       if (isNew) {
-        if (!selectedFiles.length) {
+        if (!selectedFile) {
           throw new Error("Please select an image.");
         }
 
         /*
-         * Portfolio gallery:
-         * create a separate Media record for
-         * every selected image.
+         * One upload = one Media document.
+         *
+         * Portfolio gallery images are still supported,
+         * but each image must be added separately.
          */
-        if (isMultipleGallery) {
-          for (const file of selectedFiles) {
-            await createMediaRecord({
-              file,
-              page: "portfolio",
-              type: "gallery",
-              title: editing.title,
-              alt: editing.alt,
-            });
-          }
-        } else {
-          /*
-           * Normal cover image:
-           * only one image.
-           */
-          await createMediaRecord({
-            file: selectedFiles[0],
-            page: editing.page,
-            type: "cover",
-            title: editing.title,
-            alt: editing.alt,
-          });
-        }
+        await createMediaRecord({
+          file: selectedFile,
+          page: editing.page,
+          type: editing.page === "portfolio" ? editing.type : "cover",
+          title: editing.title,
+          alt: editing.alt,
+        });
       } else {
+        /* ------------------------------------------------
+           UPDATE EXISTING MEDIA
+        ------------------------------------------------ */
 
-      /*
-       * ----------------------------------------------
-       * UPDATE EXISTING MEDIA
-       * ----------------------------------------------
-       */
-        const formData = new FormData();
-
-        formData.append("title", editing.title || "");
-        formData.append("alt", editing.alt || "");
-        formData.append("active", editing.active ? "true" : "false");
-
-        /*
-         * Existing media can replace its image
-         * with one new image.
-         */
-        if (selectedFiles.length > 0) {
-          formData.append("file", selectedFiles[0]);
-        }
-
-        const response = await fetch(
-          `${API_URL}/api/media/${editing._id || editing.id}`,
-          {
-            method: "PUT",
-            body: formData,
-          },
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.message || "Failed to update media.");
-        }
+        await updateMediaRecord({
+          id,
+          file: selectedFile || null,
+          title: editing.title,
+          alt: editing.alt,
+          active: editing.active,
+        });
       }
 
+      /* ------------------------------------------------
+         CLOSE
+      ------------------------------------------------ */
+
+      clearSelectedFile();
+
       setEditing(null);
-      setSelectedFiles([]);
-      setPreviews([]);
 
       await fetchMedia();
     } catch (error) {
-      console.error(error);
-      window.alert(error.message);
+      console.error("Save media error:", error);
+
+      window.alert(error?.message || "Failed to save media.");
     } finally {
       setSaving(false);
     }
@@ -418,30 +432,33 @@ export default function MediaLibrary() {
   ================================================== */
 
   const deleteMedia = async (id) => {
-    if (!window.confirm("Delete this media permanently?")) {
+    if (!id) {
+      window.alert("Media ID is missing.");
+
+      return;
+    }
+
+    const confirmed = window.confirm("Delete this media permanently?");
+
+    if (!confirmed) {
       return;
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/media/${id}`, {
+      await mediaRequest(`/api/media/${id}`, {
         method: "DELETE",
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to delete media.");
-      }
-
       await fetchMedia();
     } catch (error) {
-      console.error(error);
-      window.alert(error.message);
+      console.error("Delete media error:", error);
+
+      window.alert(error?.message || "Failed to delete media.");
     }
   };
 
   /* ==================================================
-     FILTER TYPE
+     FILTERED MEDIA
   ================================================== */
 
   const filteredMedia = media;
@@ -455,7 +472,7 @@ export default function MediaLibrary() {
       <PageTitle
         eyebrow="Content / Media"
         title="Media Library"
-        description="Manage cover images across the website and multiple images for the Portfolio gallery."
+        description="Manage cover images across the website and portfolio gallery images. Each media item is uploaded individually."
         action={
           <Button onClick={openCreate}>
             <Plus size={15} />
@@ -506,6 +523,7 @@ export default function MediaLibrary() {
             {filters.page === "portfolio" && (
               <>
                 <option value="cover">Cover</option>
+
                 <option value="gallery">Gallery</option>
               </>
             )}
@@ -527,6 +545,8 @@ export default function MediaLibrary() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredMedia.map((item) => (
             <Card key={item._id || item.id} className="overflow-hidden">
+              {/* IMAGE */}
+
               <div className="aspect-[4/3] bg-black">
                 {item.url ? (
                   <img
@@ -541,6 +561,8 @@ export default function MediaLibrary() {
                 )}
               </div>
 
+              {/* INFO */}
+
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -550,6 +572,7 @@ export default function MediaLibrary() {
 
                     <p className="mt-2 text-[9px] uppercase tracking-[0.18em] text-white/30">
                       {item.page}
+
                       {item.page === "portfolio" && ` · ${item.type}`}
                     </p>
                   </div>
@@ -564,6 +587,8 @@ export default function MediaLibrary() {
                     {item.active ? "Active" : "Inactive"}
                   </span>
                 </div>
+
+                {/* ACTIONS */}
 
                 <div className="mt-4 flex gap-2">
                   <button
@@ -610,7 +635,15 @@ export default function MediaLibrary() {
                 </h2>
               </div>
 
-              <button type="button" onClick={() => setEditing(null)}>
+              <button
+                type="button"
+                onClick={() => {
+                  clearSelectedFile();
+                  setEditing(null);
+                }}
+                disabled={saving}
+                aria-label="Close"
+              >
                 <X size={20} className="text-white/40" />
               </button>
             </div>
@@ -686,91 +719,77 @@ export default function MediaLibrary() {
 
               <div>
                 <span className="mb-2 block text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
-                  {editing.page === "portfolio" && editing.type === "gallery"
-                    ? "Gallery Images"
-                    : "Cover Image"}
+                  Image
                 </span>
 
                 <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center border border-dashed border-white/15 px-5 py-6 text-center transition hover:border-red-500/50 hover:bg-red-500/[0.03]">
                   <UploadCloud size={22} className="mb-3 text-white/40" />
 
                   <span className="text-[10px] font-bold uppercase tracking-[0.15em]">
-                    {editing.page === "portfolio" && editing.type === "gallery"
-                      ? "Choose Multiple Images"
-                      : "Choose Image"}
+                    {selectedFile ? "Choose Different Image" : "Choose Image"}
                   </span>
 
-                  {editing.page === "portfolio" &&
-                    editing.type === "gallery" && (
-                      <span className="mt-2 text-[10px] text-white/30">
-                        You can select multiple images at once.
-                      </span>
-                    )}
+                  <span className="mt-2 text-[10px] text-white/30">
+                    Select one image at a time.
+                  </span>
 
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/avif"
-                    multiple={
-                      editing.page === "portfolio" && editing.type === "gallery"
-                    }
                     className="hidden"
-                    onChange={handleFilesChange}
+                    onChange={handleFileChange}
                   />
                 </label>
               </div>
 
-              {/* SELECTED IMAGE PREVIEWS */}
+              {/* SELECTED IMAGE PREVIEW */}
 
-              {selectedFiles.length > 0 && (
+              {selectedFile && preview && (
                 <div>
                   <div className="mb-3 flex items-center justify-between">
                     <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
-                      Selected Images
+                      Selected Image
                     </p>
 
-                    <p className="text-[9px] uppercase tracking-[0.15em] text-white/30">
-                      {selectedFiles.length}{" "}
-                      {selectedFiles.length === 1 ? "image" : "images"}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={clearSelectedFile}
+                      className="text-[9px] uppercase tracking-[0.15em] text-white/30 transition hover:text-red-400"
+                    >
+                      Remove
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {selectedFiles.map((file, index) => (
-                      <div
-                        key={`${file.name}-${index}`}
-                        className="group relative overflow-hidden border border-white/10 bg-black"
-                      >
-                        <div className="aspect-square">
-                          <img
-                            src={previews[index]}
-                            alt={file.name}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
+                  <div className="relative max-w-sm overflow-hidden border border-white/10 bg-black">
+                    <div className="aspect-[4/3]">
+                      <img
+                        src={preview}
+                        alt={selectedFile.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
 
-                        <div className="absolute inset-x-0 bottom-0 bg-black/80 p-2">
-                          <p className="truncate text-[9px] text-white/60">
-                            {file.name}
-                          </p>
-                        </div>
+                    <div className="absolute inset-x-0 bottom-0 bg-black/80 p-2">
+                      <p className="truncate text-[9px] text-white/60">
+                        {selectedFile.name}
+                      </p>
+                    </div>
 
-                        <button
-                          type="button"
-                          onClick={() => removeSelectedFile(index)}
-                          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center bg-black/80 text-white/60 transition hover:bg-red-500 hover:text-white"
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    ))}
+                    <button
+                      type="button"
+                      onClick={clearSelectedFile}
+                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center bg-black/80 text-white/60 transition hover:bg-red-500 hover:text-white"
+                      aria-label="Remove selected image"
+                    >
+                      <X size={13} />
+                    </button>
                   </div>
                 </div>
               )}
 
               {/* EXISTING IMAGE */}
 
-              {editing.existingUrl && selectedFiles.length === 0 && (
+              {editing.existingUrl && !selectedFile && (
                 <div>
                   <p className="mb-3 text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
                     Current Image
@@ -783,6 +802,10 @@ export default function MediaLibrary() {
                       className="aspect-[4/3] w-full object-cover"
                     />
                   </div>
+
+                  <p className="mt-2 text-[9px] uppercase tracking-[0.15em] text-white/25">
+                    Choose a new image above to replace this image.
+                  </p>
                 </div>
               )}
 
@@ -811,26 +834,20 @@ export default function MediaLibrary() {
             <div className="flex flex-col-reverse gap-3 border-t border-white/10 p-5 sm:flex-row sm:justify-end">
               <Button
                 variant="secondary"
-                onClick={() => setEditing(null)}
+                onClick={() => {
+                  clearSelectedFile();
+                  setEditing(null);
+                }}
                 disabled={saving}
               >
                 Cancel
               </Button>
 
-              <Button
-                onClick={saveMedia}
-                disabled={saving || selectedFiles.length === 0}
-              >
+              <Button onClick={saveMedia} disabled={saving || !selectedFile}>
                 {saving
-                  ? editing.page === "portfolio" &&
-                    editing.type === "gallery" &&
-                    selectedFiles.length > 1
-                    ? `Uploading ${selectedFiles.length} Images...`
-                    : "Saving..."
-                  : editing.page === "portfolio" &&
-                      editing.type === "gallery" &&
-                      selectedFiles.length > 1
-                    ? `Save ${selectedFiles.length} Images`
+                  ? "Saving..."
+                  : editing._id || editing.id
+                    ? "Update Media"
                     : "Save Media"}
               </Button>
             </div>

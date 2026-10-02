@@ -3,8 +3,8 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 let refreshPromise = null;
 
 /* ==================================================
-   REFRESH ACCESS TOKEN
-================================================== */
+    REFRESH ACCESS TOKEN
+  ================================================== */
 
 const refreshAccessToken = async () => {
   if (!refreshPromise) {
@@ -41,8 +41,8 @@ const refreshAccessToken = async () => {
 };
 
 /* ==================================================
-   AUTHENTICATED FETCH
-================================================== */
+    AUTHENTICATED FETCH
+  ================================================== */
 
 export const adminFetch = async (path, options = {}, retry = true) => {
   const requestOptions = {
@@ -75,8 +75,8 @@ export const adminFetch = async (path, options = {}, retry = true) => {
 };
 
 /* ==================================================
-   PARSE JSON
-================================================== */
+    PARSE JSON
+  ================================================== */
 
 export const adminJson = async (path, options = {}) => {
   const response = await adminFetch(path, options);
@@ -102,8 +102,8 @@ export const adminJson = async (path, options = {}) => {
 };
 
 /* ==================================================
-   LOGIN
-================================================== */
+    LOGIN
+  ================================================== */
 
 export const adminLogin = async (email, password) => {
   return adminJson("/api/auth/login", {
@@ -121,8 +121,8 @@ export const adminLogin = async (email, password) => {
 };
 
 /* ==================================================
-   CURRENT ADMIN
-================================================== */
+    CURRENT ADMIN
+  ================================================== */
 
 export const getCurrentAdmin = async () => {
   return adminJson("/api/auth/me", {
@@ -131,8 +131,8 @@ export const getCurrentAdmin = async () => {
 };
 
 /* ==================================================
-   LOGOUT
-================================================== */
+    LOGOUT
+  ================================================== */
 
 export const adminLogout = async () => {
   return adminJson("/api/auth/logout", {
@@ -141,8 +141,8 @@ export const adminLogout = async () => {
 };
 
 /* ==================================================
-   LOGOUT ALL SESSIONS
-================================================== */
+    LOGOUT ALL SESSIONS
+  ================================================== */
 
 export const adminLogoutAll = async () => {
   return adminJson("/api/auth/logout-all", {
@@ -151,7 +151,7 @@ export const adminLogoutAll = async () => {
 };
 
 /* ==================================================
-   API URL
-================================================== */
+    API URL
+  ================================================== */
 
 export { API_URL };

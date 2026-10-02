@@ -11,19 +11,37 @@ import {
   EmptyState,
 } from "../components/AdminUI";
 
+import { adminFetch } from "../utils/authFetch";
+
 const API_URL = "/api/sponsors";
 const UPLOAD_URL = "/api/upload";
 
 export default function SponsorManager() {
   const [sponsors, setSponsors] = useState([]);
-
   const [editing, setEditing] = useState(null);
-
   const [uploading, setUploading] = useState(false);
-
   const [loading, setLoading] = useState(true);
-
   const [saving, setSaving] = useState(false);
+
+  /* ==================================================
+     SAFE JSON PARSER
+  ================================================== */
+
+  const parseResponse = async (response) => {
+    const text = await response.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(
+        `Server returned an invalid response (${response.status}).`,
+      );
+    }
+  };
 
   /* ==================================================
      LOAD SPONSORS
@@ -37,19 +55,23 @@ export default function SponsorManager() {
     try {
       setLoading(true);
 
-      const response = await fetch(API_URL);
+      const response = await adminFetch(API_URL, {
+        method: "GET",
+      });
 
-      const result = await response.json();
+      const result = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to fetch sponsors.");
+        throw new Error(
+          result?.message || `Failed to fetch sponsors (${response.status}).`,
+        );
       }
 
-      setSponsors(result.sponsors || []);
+      setSponsors(Array.isArray(result?.sponsors) ? result.sponsors : []);
     } catch (error) {
       console.error("Load sponsors error:", error);
 
-      window.alert(error.message);
+      window.alert(error.message || "Failed to load sponsors.");
     } finally {
       setLoading(false);
     }
@@ -94,9 +116,9 @@ export default function SponsorManager() {
 
       const isEditing = Boolean(editing._id);
 
-      const url = isEditing ? `${API_URL}/${editing._id}` : API_URL;
+      const path = isEditing ? `${API_URL}/${editing._id}` : API_URL;
 
-      const response = await fetch(url, {
+      const response = await adminFetch(path, {
         method: isEditing ? "PUT" : "POST",
 
         headers: {
@@ -108,7 +130,6 @@ export default function SponsorManager() {
 
           logo: {
             url: editing.logo.url,
-
             publicId: editing.logo.publicId || "",
           },
 
@@ -120,10 +141,16 @@ export default function SponsorManager() {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to save sponsor.");
+        throw new Error(
+          result?.message || `Failed to save sponsor (${response.status}).`,
+        );
+      }
+
+      if (!result?.sponsor) {
+        throw new Error("Sponsor was saved, but no sponsor was returned.");
       }
 
       if (isEditing) {
@@ -140,7 +167,7 @@ export default function SponsorManager() {
     } catch (error) {
       console.error("Save sponsor error:", error);
 
-      window.alert(error.message);
+      window.alert(error.message || "Failed to save sponsor.");
     } finally {
       setSaving(false);
     }
@@ -151,41 +178,38 @@ export default function SponsorManager() {
   ================================================== */
 
   const remove = async (id) => {
+    if (!id) {
+      window.alert("Invalid sponsor ID.");
+      return;
+    }
+
     if (!window.confirm("Delete this sponsor?")) {
       return;
     }
 
     try {
-      const response = await fetch(`${API_URL}/${id}`, {
+      const response = await adminFetch(`${API_URL}/${id}`, {
         method: "DELETE",
       });
 
-      const result = await response.json();
+      const result = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to delete sponsor.");
+        throw new Error(
+          result?.message || `Failed to delete sponsor (${response.status}).`,
+        );
       }
 
       setSponsors((current) => current.filter((sponsor) => sponsor._id !== id));
     } catch (error) {
       console.error("Delete sponsor error:", error);
 
-      window.alert(error.message);
+      window.alert(error.message || "Failed to delete sponsor.");
     }
   };
 
   /* ==================================================
      UPLOAD SPONSOR LOGO
-     
-     Browser
-       ↓
-     /api/upload
-       ↓
-     Express + Multer
-       ↓
-     Cloudinary
-       ↓
-     Cloudinary URL
   ================================================== */
 
   const uploadLogo = async (event) => {
@@ -201,43 +225,86 @@ export default function SponsorManager() {
       const formData = new FormData();
 
       formData.append("file", file);
-
       formData.append("folder", "sponsors");
 
-      const response = await fetch(UPLOAD_URL, {
+      const response = await adminFetch(UPLOAD_URL, {
         method: "POST",
-
         body: formData,
       });
 
-      const result = await response.json();
+      const result = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to upload sponsor logo.");
+        throw new Error(
+          result?.message ||
+            `Failed to upload sponsor logo (${response.status}).`,
+        );
       }
 
-      if (!result.file?.url) {
+      /*
+       * Your uploadController returns:
+       *
+       * {
+       *   success: true,
+       *   data: {
+       *     url,
+       *     publicId,
+       *     ...
+       *   }
+       * }
+       *
+       * NOT:
+       *
+       * result.file
+       */
+
+      const uploadedFile = result?.data;
+
+      if (!uploadedFile?.url) {
         throw new Error("Upload succeeded, but no image URL was returned.");
       }
 
-      setEditing((current) => ({
-        ...current,
+      setEditing((current) => {
+        if (!current) {
+          return current;
+        }
 
-        logo: {
-          url: result.file.url,
+        return {
+          ...current,
 
-          publicId: result.file.publicId || "",
-        },
-      }));
+          logo: {
+            url: uploadedFile.url,
+            publicId: uploadedFile.publicId || "",
+          },
+        };
+      });
     } catch (error) {
       console.error("Sponsor logo upload error:", error);
 
-      window.alert(error.message);
+      window.alert(error.message || "Failed to upload sponsor logo.");
     } finally {
       setUploading(false);
 
+      /*
+       * Allow selecting the same file again.
+       */
       event.target.value = "";
     }
+  };
+
+  /* ==================================================
+     EDIT SPONSOR
+  ================================================== */
+
+  const editSponsor = (sponsor) => {
+    setEditing({
+      ...sponsor,
+
+      logo: {
+        url: sponsor.logo?.url || "",
+        publicId: sponsor.logo?.publicId || "",
+      },
+    });
   };
 
   /* ==================================================
@@ -267,35 +334,62 @@ export default function SponsorManager() {
           <p className="text-sm text-white/40">Loading sponsors...</p>
         </Card>
       ) : sponsors.length === 0 ? (
-        /* ==================================================
-            EMPTY
-        ================================================== */
-
         <EmptyState>No sponsor logos have been added yet.</EmptyState>
       ) : (
-        /* ==================================================
-            SPONSOR LIST
-        ================================================== */
-
         <Card className="overflow-hidden">
           <div className="divide-y divide-white/10">
             {sponsors.map((sponsor) => (
               <div
                 key={sponsor._id}
-                className="flex flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between"
+                className="
+                  flex
+                  flex-col
+                  gap-4
+                  px-5
+                  py-5
+
+                  md:flex-row
+                  md:items-center
+                  md:justify-between
+                "
               >
                 {/* SPONSOR INFO */}
 
                 <div className="flex items-center gap-5">
-                  <div className="flex h-16 w-28 items-center justify-center border border-white/10 bg-black p-3">
+                  <div
+                    className="
+                      flex
+                      h-16
+                      w-28
+                      shrink-0
+                      items-center
+                      justify-center
+                      border
+                      border-white/10
+                      bg-black
+                      p-3
+                    "
+                  >
                     {sponsor.logo?.url ? (
                       <img
                         src={sponsor.logo.url}
                         alt={sponsor.name}
-                        className="max-h-full max-w-full object-contain"
+                        className="
+                          max-h-full
+                          max-w-full
+                          object-contain
+                        "
                       />
                     ) : (
-                      <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20">
+                      <span
+                        className="
+                          text-[9px]
+                          font-bold
+                          uppercase
+                          tracking-[0.15em]
+                          text-white/20
+                        "
+                      >
                         No Logo
                       </span>
                     )}
@@ -304,7 +398,15 @@ export default function SponsorManager() {
                   <div>
                     <h3 className="font-bold">{sponsor.name}</h3>
 
-                    <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/25">
+                    <p
+                      className="
+                        mt-1
+                        text-[9px]
+                        uppercase
+                        tracking-[0.15em]
+                        text-white/25
+                      "
+                    >
                       Order # {sponsor.order}
                     </p>
                   </div>
@@ -317,33 +419,43 @@ export default function SponsorManager() {
                     status={sponsor.active ? "Published" : "Draft"}
                   />
 
-                  {/* EDIT */}
-
                   <button
                     type="button"
-                    onClick={() =>
-                      setEditing({
-                        ...sponsor,
-
-                        logo: {
-                          url: sponsor.logo?.url || "",
-
-                          publicId: sponsor.logo?.publicId || "",
-                        },
-                      })
-                    }
-                    className="flex h-9 w-9 items-center justify-center border border-white/10 text-white/40 transition-colors hover:border-white/30 hover:text-white"
+                    onClick={() => editSponsor(sponsor)}
+                    className="
+                      flex
+                      h-9
+                      w-9
+                      items-center
+                      justify-center
+                      border
+                      border-white/10
+                      text-white/40
+                      transition-colors
+                      hover:border-white/30
+                      hover:text-white
+                    "
                     aria-label={`Edit ${sponsor.name}`}
                   >
                     <Pencil size={15} />
                   </button>
 
-                  {/* DELETE */}
-
                   <button
                     type="button"
                     onClick={() => remove(sponsor._id)}
-                    className="flex h-9 w-9 items-center justify-center border border-white/10 text-white/40 transition-colors hover:border-red-500/40 hover:text-red-500"
+                    className="
+                      flex
+                      h-9
+                      w-9
+                      items-center
+                      justify-center
+                      border
+                      border-white/10
+                      text-white/40
+                      transition-colors
+                      hover:border-red-500/40
+                      hover:text-red-500
+                    "
                     aria-label={`Delete ${sponsor.name}`}
                   >
                     <Trash2 size={15} />
@@ -360,13 +472,38 @@ export default function SponsorManager() {
       ================================================== */}
 
       {editing && (
-        <div className="fixed inset-0 z-[60000] overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
-          <div className="mx-auto max-w-xl border border-white/10 bg-[#0b0b0b]">
-            {/* ==================================================
-                MODAL HEADER
-            ================================================== */}
+        <div
+          className="
+            fixed
+            inset-0
+            z-[60000]
+            overflow-y-auto
+            bg-black/80
+            p-4
+            backdrop-blur-sm
+          "
+        >
+          <div
+            className="
+              mx-auto
+              max-w-xl
+              border
+              border-white/10
+              bg-[#0b0b0b]
+            "
+          >
+            {/* HEADER */}
 
-            <div className="flex items-center justify-between border-b border-white/10 p-5">
+            <div
+              className="
+                flex
+                items-center
+                justify-between
+                border-b
+                border-white/10
+                p-5
+              "
+            >
               <h2 className="font-bold">{editing.name || "New Sponsor"}</h2>
 
               <button
@@ -376,7 +513,15 @@ export default function SponsorManager() {
                     setEditing(null);
                   }
                 }}
-                className="flex h-9 w-9 items-center justify-center transition-colors hover:bg-white/5"
+                className="
+                  flex
+                  h-9
+                  w-9
+                  items-center
+                  justify-center
+                  transition-colors
+                  hover:bg-white/5
+                "
                 aria-label="Close"
                 disabled={uploading || saving}
               >
@@ -384,12 +529,10 @@ export default function SponsorManager() {
               </button>
             </div>
 
-            {/* ==================================================
-                FORM
-            ================================================== */}
+            {/* FORM */}
 
             <div className="space-y-5 p-5">
-              {/* SPONSOR NAME */}
+              {/* NAME */}
 
               <Input
                 label="Sponsor Name"
@@ -397,7 +540,6 @@ export default function SponsorManager() {
                 onChange={(event) =>
                   setEditing({
                     ...editing,
-
                     name: event.target.value,
                   })
                 }
@@ -414,34 +556,66 @@ export default function SponsorManager() {
                 onChange={(event) =>
                   setEditing({
                     ...editing,
-
                     website: event.target.value,
                   })
                 }
                 disabled={saving}
               />
 
-              {/* ==================================================
-                  LOGO UPLOAD
-              ================================================== */}
+              {/* LOGO */}
 
               <div>
-                <span className="mb-2 block text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
+                <span
+                  className="
+                    mb-2
+                    block
+                    text-[9px]
+                    font-bold
+                    uppercase
+                    tracking-[0.2em]
+                    text-white/35
+                  "
+                >
                   Sponsor Logo
                 </span>
 
                 <div className="flex flex-col gap-4 sm:flex-row">
                   {/* PREVIEW */}
 
-                  <div className="flex h-24 w-32 shrink-0 items-center justify-center border border-white/10 bg-black p-3">
+                  <div
+                    className="
+                      flex
+                      h-24
+                      w-32
+                      shrink-0
+                      items-center
+                      justify-center
+                      border
+                      border-white/10
+                      bg-black
+                      p-3
+                    "
+                  >
                     {editing.logo?.url ? (
                       <img
                         src={editing.logo.url}
                         alt={editing.name || "Sponsor logo"}
-                        className="max-h-full max-w-full object-contain"
+                        className="
+                          max-h-full
+                          max-w-full
+                          object-contain
+                        "
                       />
                     ) : (
-                      <span className="text-[8px] font-bold uppercase tracking-[0.15em] text-white/20">
+                      <span
+                        className="
+                          text-[8px]
+                          font-bold
+                          uppercase
+                          tracking-[0.15em]
+                          text-white/20
+                        "
+                      >
                         No Logo
                       </span>
                     )}
@@ -450,11 +624,27 @@ export default function SponsorManager() {
                   {/* UPLOAD */}
 
                   <label
-                    className={`flex items-center gap-2 self-start border border-white/15 px-4 py-3 text-[9px] font-bold uppercase tracking-[0.15em] transition-colors ${
-                      uploading || saving
-                        ? "cursor-not-allowed opacity-50"
-                        : "cursor-pointer hover:border-studio-red hover:bg-studio-red"
-                    }`}
+                    className={`
+                      flex
+                      items-center
+                      gap-2
+                      self-start
+                      border
+                      border-white/15
+                      px-4
+                      py-3
+                      text-[9px]
+                      font-bold
+                      uppercase
+                      tracking-[0.15em]
+                      transition-colors
+
+                      ${
+                        uploading || saving
+                          ? "cursor-not-allowed opacity-50"
+                          : "cursor-pointer hover:border-studio-red hover:bg-studio-red"
+                      }
+                    `}
                   >
                     <UploadCloud size={15} />
 
@@ -470,14 +660,20 @@ export default function SponsorManager() {
                   </label>
                 </div>
 
-                <p className="mt-2 text-[9px] uppercase tracking-[0.12em] text-white/20">
+                <p
+                  className="
+                    mt-2
+                    text-[9px]
+                    uppercase
+                    tracking-[0.12em]
+                    text-white/20
+                  "
+                >
                   JPG, PNG, WEBP or AVIF
                 </p>
               </div>
 
-              {/* ==================================================
-                  ORDER + STATUS
-              ================================================== */}
+              {/* ORDER + STATUS */}
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <Input
@@ -488,7 +684,6 @@ export default function SponsorManager() {
                   onChange={(event) =>
                     setEditing({
                       ...editing,
-
                       order: Number(event.target.value) || 0,
                     })
                   }
@@ -501,7 +696,6 @@ export default function SponsorManager() {
                   onChange={(event) =>
                     setEditing({
                       ...editing,
-
                       active: event.target.value === "Published",
                     })
                   }
@@ -514,11 +708,21 @@ export default function SponsorManager() {
               </div>
             </div>
 
-            {/* ==================================================
-                MODAL FOOTER
-            ================================================== */}
+            {/* FOOTER */}
 
-            <div className="flex flex-col-reverse gap-3 border-t border-white/10 p-5 sm:flex-row sm:justify-end">
+            <div
+              className="
+                flex
+                flex-col-reverse
+                gap-3
+                border-t
+                border-white/10
+                p-5
+
+                sm:flex-row
+                sm:justify-end
+              "
+            >
               <Button
                 variant="secondary"
                 onClick={() => setEditing(null)}

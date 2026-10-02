@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Save, UploadCloud } from "lucide-react";
 
 import { Button, Card, Input, PageTitle } from "../components/AdminUI";
+import { adminFetch, adminJson } from "../utils/authFetch";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 /* ==================================================
    DEFAULT HOME
@@ -32,6 +33,7 @@ const emptyHome = {
   about: {
     title: "",
     description: "",
+
     image: {
       url: "",
       publicId: "",
@@ -60,13 +62,10 @@ export default function HomeManager() {
   const [home, setHome] = useState(emptyHome);
 
   const [loading, setLoading] = useState(true);
-
   const [saving, setSaving] = useState(false);
-
   const [uploading, setUploading] = useState("");
 
   const [message, setMessage] = useState("");
-
   const [error, setError] = useState("");
 
   /* ==================================================
@@ -82,26 +81,22 @@ export default function HomeManager() {
       setLoading(true);
       setError("");
 
-      const response = await fetch(`${API_URL}/home`);
+      const response = await fetch(`${API_URL}/api/home`);
 
-      const result = await response.json();
+      let result = null;
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to load home data");
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || "Failed to load home data");
       }
 
       const serverHome = result.home || {};
-
       const serverHero = serverHome.hero || {};
-
-      /*
-       * IMPORTANT:
-       *
-       * accent is explicitly included here.
-       *
-       * If the database does not have accent,
-       * the default "Storytelling." is used.
-       */
 
       setHome({
         ...emptyHome,
@@ -124,13 +119,11 @@ export default function HomeManager() {
 
           video: {
             ...emptyHome.hero.video,
-
             ...(serverHero.video || {}),
           },
 
           poster: {
             ...emptyHome.hero.poster,
-
             ...(serverHero.poster || {}),
           },
         },
@@ -142,14 +135,12 @@ export default function HomeManager() {
 
           image: {
             ...emptyHome.about.image,
-
             ...(serverHome.about?.image || {}),
           },
         },
 
         socials: {
           ...emptyHome.socials,
-
           ...(serverHome.socials || {}),
         },
 
@@ -166,7 +157,7 @@ export default function HomeManager() {
     } catch (err) {
       console.error("Fetch home error:", err);
 
-      setError(err.message || "Failed to load home data");
+      setError(err instanceof Error ? err.message : "Failed to load home data");
     } finally {
       setLoading(false);
     }
@@ -243,7 +234,9 @@ export default function HomeManager() {
   const uploadFile = async (event, type) => {
     const file = event.target.files?.[0];
 
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     try {
       setUploading(type);
@@ -252,34 +245,58 @@ export default function HomeManager() {
 
       /* ----------------------------------------------
          STEP 1
-         Upload file
+         UPLOAD FILE
       ---------------------------------------------- */
 
       const formData = new FormData();
 
       formData.append("file", file);
 
-      const uploadResponse = await fetch(`${API_URL}/upload`, {
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT manually set Content-Type here.
+       *
+       * Browser automatically sets:
+       *
+       * multipart/form-data;
+       * boundary=...
+       *
+       * adminFetch also includes credentials and
+       * automatically handles access-token refresh.
+       */
+
+      const uploadResponse = await adminFetch("/api/upload", {
         method: "POST",
         body: formData,
       });
 
-      const uploadResult = await uploadResponse.json();
+      let uploadResult = null;
 
-      if (!uploadResponse.ok || !uploadResult.success) {
+      try {
+        uploadResult = await uploadResponse.json();
+      } catch {
+        uploadResult = null;
+      }
+
+      if (!uploadResponse.ok || !uploadResult?.success) {
         throw new Error(
-          uploadResult.error || uploadResult.message || "File upload failed",
+          uploadResult?.error || uploadResult?.message || "File upload failed",
         );
       }
 
       const uploadedFile = uploadResult.file;
+
+      if (!uploadedFile?.url) {
+        throw new Error("Upload succeeded but no file URL was returned.");
+      }
 
       /* ----------------------------------------------
          HERO VIDEO
       ---------------------------------------------- */
 
       if (type === "heroVideo") {
-        const response = await fetch(`${API_URL}/home/hero/video`, {
+        const result = await adminJson("/api/home/hero/video", {
           method: "PUT",
 
           headers: {
@@ -289,33 +306,39 @@ export default function HomeManager() {
           body: JSON.stringify({
             url: uploadedFile.url,
 
-            publicId: uploadedFile.publicId,
+            publicId: uploadedFile.publicId || "",
 
             playbackUrl: uploadedFile.playbackUrl || "",
           }),
         });
 
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || "Failed to save hero video");
-        }
+        const savedHome = result?.home || {};
 
         setHome((current) => ({
           ...current,
 
+          ...(savedHome || {}),
+
           hero: {
             ...current.hero,
 
+            ...(savedHome.hero || {}),
+
             video: {
+              ...current.hero.video,
+
+              ...(savedHome.hero?.video || {}),
+
               url: uploadedFile.url,
 
-              publicId: uploadedFile.publicId,
+              publicId: uploadedFile.publicId || "",
 
               playbackUrl: uploadedFile.playbackUrl || "",
             },
           },
         }));
+
+        setMessage("Hero video uploaded and saved successfully.");
       }
 
       /* ----------------------------------------------
@@ -323,7 +346,7 @@ export default function HomeManager() {
       ---------------------------------------------- */
 
       if (type === "heroPoster") {
-        const response = await fetch(`${API_URL}/home/hero/poster`, {
+        const result = await adminJson("/api/home/hero/poster", {
           method: "PUT",
 
           headers: {
@@ -333,29 +356,35 @@ export default function HomeManager() {
           body: JSON.stringify({
             url: uploadedFile.url,
 
-            publicId: uploadedFile.publicId,
+            publicId: uploadedFile.publicId || "",
           }),
         });
 
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || "Failed to save hero poster");
-        }
+        const savedHome = result?.home || {};
 
         setHome((current) => ({
           ...current,
 
+          ...(savedHome || {}),
+
           hero: {
             ...current.hero,
 
+            ...(savedHome.hero || {}),
+
             poster: {
+              ...current.hero.poster,
+
+              ...(savedHome.hero?.poster || {}),
+
               url: uploadedFile.url,
 
-              publicId: uploadedFile.publicId,
+              publicId: uploadedFile.publicId || "",
             },
           },
         }));
+
+        setMessage("Hero poster uploaded and saved successfully.");
       }
 
       /* ----------------------------------------------
@@ -363,7 +392,7 @@ export default function HomeManager() {
       ---------------------------------------------- */
 
       if (type === "aboutImage") {
-        const response = await fetch(`${API_URL}/home/about`, {
+        const result = await adminJson("/api/home/about", {
           method: "PUT",
 
           headers: {
@@ -374,40 +403,47 @@ export default function HomeManager() {
             image: {
               url: uploadedFile.url,
 
-              publicId: uploadedFile.publicId,
+              publicId: uploadedFile.publicId || "",
             },
           }),
         });
 
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || "Failed to save About image");
-        }
+        const savedHome = result?.home || {};
 
         setHome((current) => ({
           ...current,
 
+          ...(savedHome || {}),
+
           about: {
             ...current.about,
 
+            ...(savedHome.about || {}),
+
             image: {
+              ...current.about.image,
+
+              ...(savedHome.about?.image || {}),
+
               url: uploadedFile.url,
 
-              publicId: uploadedFile.publicId,
+              publicId: uploadedFile.publicId || "",
             },
           },
         }));
-      }
 
-      setMessage("Asset uploaded and saved successfully.");
+        setMessage("About image uploaded and saved successfully.");
+      }
     } catch (err) {
       console.error("Upload error:", err);
 
-      setError(err.message || "Upload failed");
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading("");
 
+      /*
+       * Allows selecting the same file again.
+       */
       event.target.value = "";
     }
   };
@@ -422,7 +458,7 @@ export default function HomeManager() {
       setMessage("");
       setError("");
 
-      const response = await fetch(`${API_URL}/home`, {
+      const result = await adminJson("/api/home", {
         method: "PUT",
 
         headers: {
@@ -430,29 +466,23 @@ export default function HomeManager() {
         },
 
         body: JSON.stringify({
-          /* ------------------------------------------
-                 HERO
-              ------------------------------------------ */
+          /* ----------------------------------------
+               HERO
+            ---------------------------------------- */
 
           hero: {
             title: home.hero.title,
 
             subtitle: home.hero.subtitle,
 
-            /*
-             * IMPORTANT
-             *
-             * This was missing before.
-             */
-
             accent: home.hero.accent,
 
             description: home.hero.description,
           },
 
-          /* ------------------------------------------
-                 ABOUT
-              ------------------------------------------ */
+          /* ----------------------------------------
+               ABOUT
+            ---------------------------------------- */
 
           about: {
             title: home.about.title,
@@ -460,31 +490,21 @@ export default function HomeManager() {
             description: home.about.description,
           },
 
-          /* ------------------------------------------
-                 SOCIALS
-              ------------------------------------------ */
+          /* ----------------------------------------
+               SOCIALS
+            ---------------------------------------- */
 
           socials: home.socials,
 
-          /* ------------------------------------------
-                 SEO
-              ------------------------------------------ */
+          /* ----------------------------------------
+               SEO
+            ---------------------------------------- */
 
           seo: home.seo,
         }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to save Home settings");
-      }
-
-      /*
-       * Merge server response safely.
-       */
-
-      const savedHome = result.home || {};
+      const savedHome = result?.home || {};
 
       setHome((current) => ({
         ...current,
@@ -531,6 +551,10 @@ export default function HomeManager() {
           ...current.seo,
 
           ...(savedHome.seo || {}),
+
+          keywords: Array.isArray(savedHome.seo?.keywords)
+            ? savedHome.seo.keywords
+            : current.seo.keywords,
         },
       }));
 
@@ -538,7 +562,9 @@ export default function HomeManager() {
     } catch (err) {
       console.error("Save home error:", err);
 
-      setError(err.message || "Failed to save Home settings");
+      setError(
+        err instanceof Error ? err.message : "Failed to save Home settings",
+      );
     } finally {
       setSaving(false);
     }
@@ -800,6 +826,105 @@ export default function HomeManager() {
             </div>
           </Card>
         </div>
+
+        {/* ==================================================
+            SOCIALS
+        ================================================== */}
+
+        <Card>
+          <div className="border-b border-white/10 p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.12em]">
+              Social Links
+            </p>
+
+            <p className="mt-1 text-[10px] text-white/30">
+              Social media links displayed on the website.
+            </p>
+          </div>
+
+          <div className="grid gap-5 p-5 md:grid-cols-2">
+            <Input
+              label="Instagram"
+              value={home.socials.instagram}
+              onChange={(event) =>
+                updateSocial("instagram", event.target.value)
+              }
+            />
+
+            <Input
+              label="Facebook"
+              value={home.socials.facebook}
+              onChange={(event) => updateSocial("facebook", event.target.value)}
+            />
+
+            <Input
+              label="LinkedIn"
+              value={home.socials.linkedin}
+              onChange={(event) => updateSocial("linkedin", event.target.value)}
+            />
+
+            <Input
+              label="Twitter / X"
+              value={home.socials.twitter}
+              onChange={(event) => updateSocial("twitter", event.target.value)}
+            />
+          </div>
+        </Card>
+
+        {/* ==================================================
+            SEO
+        ================================================== */}
+
+        <Card>
+          <div className="border-b border-white/10 p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.12em]">SEO</p>
+
+            <p className="mt-1 text-[10px] text-white/30">
+              Search engine metadata for the homepage.
+            </p>
+          </div>
+
+          <div className="grid gap-5 p-5">
+            <Input
+              label="SEO Title"
+              value={home.seo.title}
+              onChange={(event) => updateSeoField("title", event.target.value)}
+            />
+
+            <div>
+              <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50">
+                SEO Description
+              </label>
+
+              <textarea
+                value={home.seo.description}
+                onChange={(event) =>
+                  updateSeoField("description", event.target.value)
+                }
+                rows={4}
+                className="w-full resize-none border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-red-500"
+              />
+            </div>
+
+            <Input
+              label="SEO Keywords"
+              value={home.seo.keywords.join(", ")}
+              onChange={(event) =>
+                updateSeoField(
+                  "keywords",
+                  event.target.value
+                    .split(",")
+                    .map((keyword) => keyword.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+
+            <p className="-mt-2 text-[10px] text-white/30">
+              Separate keywords with commas.
+            </p>
+          </div>
+        </Card>
       </div>
 
       {/* ==================================================

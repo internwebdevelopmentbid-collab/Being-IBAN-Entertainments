@@ -6,9 +6,14 @@ import { ArrowDown, ArrowUpRight } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+/* ==================================================
+   DEFAULT HERO
+================================================== */
+
 const DEFAULT_HERO = {
   title: "Experience",
   subtitle: "the magic of",
+  accent: "Storytelling.",
   description:
     "A grand movie premiere backdrop, with lights, a red carpet, and an audience.",
 
@@ -17,19 +22,20 @@ const DEFAULT_HERO = {
     publicId: "",
     playbackUrl: "",
   },
-
-  poster: {
-    url: "/images/hero.jpg",
-    publicId: "",
-  },
 };
+
+/* ==================================================
+   HERO
+================================================== */
 
 export default function Hero() {
   const [hero, setHero] = useState(DEFAULT_HERO);
+
   const videoRef = useRef(null);
+  const hlsRef = useRef(null);
 
   /* ==================================================
-     FETCH HERO DATA
+     FETCH HOME DATA
   ================================================== */
 
   useEffect(() => {
@@ -52,16 +58,12 @@ export default function Hero() {
 
           setHero({
             ...DEFAULT_HERO,
+
             ...apiHero,
 
             video: {
               ...DEFAULT_HERO.video,
               ...(apiHero.video || {}),
-            },
-
-            poster: {
-              ...DEFAULT_HERO.poster,
-              ...(apiHero.poster || {}),
             },
           });
         }
@@ -78,76 +80,424 @@ export default function Hero() {
   }, []);
 
   /* ==================================================
-     VIDEO / POSTER
+     VIDEO URL
+     
+     IMPORTANT:
+     Use the stored URL directly.
+     
+     Do NOT prefer playbackUrl here.
   ================================================== */
 
-  const videoUrl = hero?.video?.url || hero?.video?.playbackUrl || "";
-
-  const posterUrl = hero?.poster?.url || "/images/hero.jpg";
+  const videoUrl = hero?.video?.url || "";
 
   /* ==================================================
-     HLS VIDEO PLAYBACK
+     HLS DETECTION
+  ================================================== */
+
+  const isHls = videoUrl.toLowerCase().includes(".m3u8");
+
+  /* ==================================================
+     HLS / VIDEO PLAYBACK
   ================================================== */
 
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!video || !videoUrl) return;
+    if (!video) return;
 
-    // Safari and browsers with native HLS support
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = videoUrl;
+    let hls = null;
+    let destroyed = false;
 
-      video.play().catch((error) => {
-        console.warn("Hero video autoplay prevented:", error);
-      });
+    /* --------------------------------------------------
+       CLEANUP
+    -------------------------------------------------- */
 
-      return;
+    const cleanup = () => {
+      destroyed = true;
+
+      if (hls) {
+        try {
+          hls.destroy();
+        } catch (error) {
+          console.warn("Hero HLS cleanup error:", error);
+        }
+
+        hls = null;
+      }
+
+      if (hlsRef.current) {
+        hlsRef.current = null;
+      }
+
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch (error) {
+        console.warn("Hero video cleanup error:", error);
+      }
+    };
+
+    /*
+     * No video configured.
+     */
+    if (!videoUrl) {
+      cleanup();
+      return cleanup;
     }
 
-    // Chrome / Edge / Firefox via hls.js
-    if (Hls.isSupported()) {
-      const hls = new Hls({
+    /*
+     * Make sure the video element is configured
+     * for autoplay/background playback.
+     */
+    video.autoplay = true;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+
+    /* ==================================================
+       HLS.JS
+       
+       Prefer hls.js whenever the browser supports it.
+    ================================================== */
+
+    if (isHls && Hls.isSupported()) {
+      console.log("Hero: using hls.js");
+
+      hls = new Hls({
         enableWorker: true,
+
         lowLatencyMode: false,
+
+        backBufferLength: 30,
+
+        maxBufferLength: 30,
+
+        maxMaxBufferLength: 60,
+
+        manifestLoadingMaxRetry: 5,
+
+        manifestLoadingRetryDelay: 1000,
+
+        levelLoadingMaxRetry: 5,
+
+        levelLoadingRetryDelay: 1000,
+
+        fragLoadingMaxRetry: 5,
+
+        fragLoadingRetryDelay: 1000,
+
+        startFragPrefetch: true,
       });
 
-      hls.loadSource(videoUrl);
-      hls.attachMedia(video);
+      hlsRef.current = hls;
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch((error) => {
-          console.warn("Hero video autoplay prevented:", error);
-        });
+      /* ------------------------------------------------
+         MEDIA ATTACHED
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        if (destroyed) return;
+
+        console.log("Hero: HLS media attached");
+
+        console.log("Hero: loading HLS source:", videoUrl);
+
+        hls.loadSource(videoUrl);
       });
+
+      /* ------------------------------------------------
+         MANIFEST LOADING
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.MANIFEST_LOADING, (_event, data) => {
+        console.log("Hero: loading HLS manifest:", data?.url);
+      });
+
+      /* ------------------------------------------------
+         MANIFEST LOADED
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.MANIFEST_LOADED, (_event, data) => {
+        console.log("Hero: HLS manifest loaded:", data?.url);
+      });
+
+      /* ------------------------------------------------
+         MANIFEST PARSED
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+        if (destroyed) return;
+
+        console.log("Hero: HLS manifest parsed");
+
+        console.log("Hero: available HLS levels:", data?.levels?.length);
+
+        video.muted = true;
+        video.autoplay = true;
+        video.loop = true;
+        video.playsInline = true;
+
+        video
+          .play()
+          .then(() => {
+            if (!destroyed) {
+              console.log("Hero: HLS video playing");
+            }
+          })
+          .catch((error) => {
+            console.warn("Hero autoplay prevented:", error);
+          });
+      });
+
+      /* ------------------------------------------------
+         SEGMENT LOADING
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.FRAG_LOADING, (_event, data) => {
+        if (data?.frag?.url) {
+          console.log("Hero: loading HLS segment:", data.frag.url);
+        }
+      });
+
+      /* ------------------------------------------------
+         SEGMENT LOADED
+      ------------------------------------------------ */
+
+      hls.on(Hls.Events.FRAG_LOADED, (_event, data) => {
+        if (data?.frag?.url) {
+          console.log("Hero: HLS segment loaded:", data.frag.url);
+        }
+      });
+
+      /* ------------------------------------------------
+         HLS ERROR
+      ------------------------------------------------ */
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error("Hero HLS error:", data);
 
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
-              break;
+        console.error("Hero HLS error type:", data?.type);
 
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
+        console.error("Hero HLS error details:", data?.details);
 
-            default:
-              hls.destroy();
-              break;
-          }
+        console.error("Hero HLS fatal:", data?.fatal);
+
+        console.error("Hero HLS URL:", videoUrl);
+
+        /*
+         * Non-fatal errors do not require
+         * intervention.
+         */
+        if (!data?.fatal) {
+          return;
         }
+
+        /* --------------------------------------------
+             NETWORK ERROR
+          -------------------------------------------- */
+
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          console.warn("Hero: HLS network error. Retrying...");
+
+          try {
+            hls.startLoad();
+          } catch (error) {
+            console.error("Hero: HLS startLoad failed:", error);
+          }
+
+          return;
+        }
+
+        /* --------------------------------------------
+             MEDIA ERROR
+          -------------------------------------------- */
+
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          console.warn("Hero: HLS media error. Attempting recovery...");
+
+          try {
+            hls.recoverMediaError();
+          } catch (error) {
+            console.error("Hero: HLS media recovery failed:", error);
+          }
+
+          return;
+        }
+
+        /* --------------------------------------------
+             UNKNOWN FATAL ERROR
+          -------------------------------------------- */
+
+        console.error("Hero: unrecoverable HLS error.");
+
+        try {
+          hls.destroy();
+        } catch (error) {
+          console.error("Hero: failed to destroy HLS:", error);
+        }
+
+        if (hlsRef.current === hls) {
+          hlsRef.current = null;
+        }
+
+        hls = null;
       });
 
+      return cleanup;
+    }
+
+    /* ==================================================
+       NATIVE HLS
+       
+       Safari / iOS fallback.
+    ================================================== */
+
+    if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
+      console.log("Hero: using native HLS playback");
+
+      console.log("Hero: native HLS URL:", videoUrl);
+
+      const handleLoadedMetadata = () => {
+        if (destroyed) return;
+
+        console.log("Hero: native HLS metadata loaded");
+
+        video
+          .play()
+          .then(() => {
+            if (!destroyed) {
+              console.log("Hero: native HLS video playing");
+            }
+          })
+          .catch((error) => {
+            console.warn("Hero native HLS autoplay prevented:", error);
+          });
+      };
+
+      const handleCanPlay = () => {
+        if (destroyed) return;
+
+        console.log("Hero: native HLS can play");
+
+        if (video.paused) {
+          video.play().catch((error) => {
+            console.warn("Hero native HLS play failed:", error);
+          });
+        }
+      };
+
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+      video.addEventListener("canplay", handleCanPlay);
+
+      video.src = videoUrl;
+
+      video.load();
+
       return () => {
-        hls.destroy();
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+
+        video.removeEventListener("canplay", handleCanPlay);
+
+        cleanup();
       };
     }
 
-    console.error("HLS is not supported in this browser.");
-  }, [videoUrl]);
+    /* ==================================================
+       NORMAL VIDEO
+       
+       MP4 / WebM / other browser-supported video.
+    ================================================== */
+
+    if (!isHls) {
+      console.log("Hero: using normal video playback");
+
+      console.log("Hero video URL:", videoUrl);
+
+      const handleLoadedMetadata = () => {
+        if (destroyed) return;
+
+        console.log("Hero: normal video metadata loaded");
+
+        video
+          .play()
+          .then(() => {
+            if (!destroyed) {
+              console.log("Hero: normal video playing");
+            }
+          })
+          .catch((error) => {
+            console.warn("Hero normal video autoplay prevented:", error);
+          });
+      };
+
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+      video.src = videoUrl;
+
+      video.load();
+
+      return () => {
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+
+        cleanup();
+      };
+    }
+
+    /* ==================================================
+       HLS NOT SUPPORTED
+    ================================================== */
+
+    console.error("Hero: HLS is not supported in this browser.");
+
+    return cleanup;
+  }, [videoUrl, isHls]);
+
+  /* ==================================================
+     VIDEO ERROR HANDLER
+  ================================================== */
+
+  const handleVideoError = (event) => {
+    const mediaError = event.currentTarget.error;
+
+    console.error("Hero video error:", mediaError);
+
+    console.error("Hero video URL:", videoUrl);
+
+    console.error("Hero video is HLS:", isHls);
+
+    if (mediaError) {
+      console.error("Hero MediaError code:", mediaError.code);
+
+      console.error("Hero MediaError message:", mediaError.message);
+
+      switch (mediaError.code) {
+        case 1:
+          console.error("Hero MediaError: MEDIA_ERR_ABORTED");
+          break;
+
+        case 2:
+          console.error("Hero MediaError: MEDIA_ERR_NETWORK");
+          break;
+
+        case 3:
+          console.error("Hero MediaError: MEDIA_ERR_DECODE");
+          break;
+
+        case 4:
+          console.error("Hero MediaError: MEDIA_ERR_SRC_NOT_SUPPORTED");
+          break;
+
+        default:
+          console.error("Hero MediaError: unknown error");
+      }
+    }
+  };
+
+  /* ==================================================
+     RENDER
+  ================================================== */
 
   return (
     <section
@@ -221,7 +571,6 @@ export default function Hero() {
                 font-bold
                 uppercase
                 text-white/40
-
                 sm:text-xs
               "
             >
@@ -284,33 +633,25 @@ export default function Hero() {
             origin-left
             -translate-x-1/2
             bg-studio-red
-
             sm:w-48
           "
         />
       </motion.div>
 
       {/* ==================================================
-          BACKGROUND
+          BACKGROUND VIDEO
       ================================================== */}
 
-      <div className="absolute inset-0">
-        {/* POSTER / FALLBACK IMAGE */}
-
-        <img
-          src={posterUrl}
-          alt=""
-          className="
-            absolute
-            inset-0
-            h-full
-            w-full
-            object-cover
-            opacity-60
-          "
-        />
-
-        {videoUrl && (
+      <div
+        className="
+          absolute
+          inset-0
+          z-0
+          overflow-hidden
+          bg-black
+        "
+      >
+        {videoUrl ? (
           <video
             ref={videoRef}
             autoPlay
@@ -318,7 +659,6 @@ export default function Hero() {
             loop
             playsInline
             preload="auto"
-            poster={posterUrl}
             className="
               absolute
               inset-0
@@ -330,11 +670,35 @@ export default function Hero() {
             onLoadedData={() => {
               console.log("Hero video loaded:", videoUrl);
             }}
-            onError={(event) => {
-              console.error("Hero video error:", event.currentTarget.error);
-              console.error("Hero video URL:", videoUrl);
+            onLoadedMetadata={() => {
+              console.log("Hero video metadata loaded");
             }}
+            onCanPlay={() => {
+              console.log("Hero video can play");
+            }}
+            onPlaying={() => {
+              console.log("Hero video is playing");
+            }}
+            onWaiting={() => {
+              console.log("Hero video waiting for data");
+            }}
+            onStalled={() => {
+              console.warn("Hero video stalled");
+            }}
+            onEnded={() => {
+              console.log("Hero video ended. Loop should restart it.");
+            }}
+            onError={handleVideoError}
           />
+        ) : (
+          /*
+           * No poster.
+           *
+           * No fallback image.
+           *
+           * No video means black background.
+           */
+          <div className="absolute inset-0 bg-black" />
         )}
       </div>
 
@@ -348,6 +712,7 @@ export default function Hero() {
         className="
           absolute
           inset-0
+          z-[1]
           bg-black/40
         "
       />
@@ -358,6 +723,7 @@ export default function Hero() {
         className="
           absolute
           inset-0
+          z-[2]
           bg-gradient-to-t
           from-black
           via-black/30
@@ -371,6 +737,7 @@ export default function Hero() {
         className="
           absolute
           inset-0
+          z-[3]
           bg-gradient-to-r
           from-black/80
           via-black/30
@@ -402,13 +769,10 @@ export default function Hero() {
           w-full
           px-6
           pb-10
-
           sm:px-7
           sm:pb-14
-
           md:px-8
           md:pb-20
-
           lg:px-6
           lg:pb-24
         "
@@ -429,10 +793,8 @@ export default function Hero() {
               uppercase
               tracking-[0.28em]
               text-white/55
-
               sm:mb-8
               sm:text-[10px]
-
               md:mb-9
               md:text-xs
             "
@@ -443,7 +805,6 @@ export default function Hero() {
                 w-9
                 shrink-0
                 bg-studio-red
-
                 sm:w-10
                 md:w-11
               "
@@ -456,26 +817,45 @@ export default function Hero() {
               MAIN HEADING
           ================================================== */}
 
-          <h1 className=" font-display font-black uppercase text-white /* Mobile */ text-[clamp(2.2rem,11vw,3.8rem)] leading-[0.86] tracking-[-0.045em] /* Small tablets */ sm:text-[clamp(3rem,9vw,5.5rem)] sm:leading-[0.84] sm:tracking-[-0.05em] /* Tablets */ md:text-[clamp(4rem,8vw,7rem)] md:leading-[0.82] /* Desktop */ lg:text-[clamp(5rem,9vw,10rem)] lg:leading-[0.82] lg:tracking-[-0.06em] ">
+          <h1
+            className="
+              font-display
+              font-black
+              uppercase
+              text-white
+
+              text-[clamp(2.2rem,11vw,3.8rem)]
+              leading-[0.86]
+              tracking-[-0.045em]
+
+              sm:text-[clamp(3rem,9vw,5.5rem)]
+              sm:leading-[0.84]
+              sm:tracking-[-0.05em]
+
+              md:text-[clamp(4rem,8vw,7rem)]
+              md:leading-[0.82]
+
+              lg:text-[clamp(5rem,9vw,10rem)]
+              lg:leading-[0.82]
+              lg:tracking-[-0.06em]
+            "
+          >
             {/* LINE 1 */}
-            <span className="block max-w-full ">
+
+            <span className="block max-w-full">
               {hero?.title || "Experience"}
             </span>
 
             {/* LINE 2 */}
-            <span
-              className="
-      block
-      max-w-full
-      
-    "
-            >
+
+            <span className="block max-w-full">
               {hero?.subtitle || "the magic of"}
             </span>
 
             {/* LINE 3 */}
-            <span className="block max-w-full  text-studio-red">
-              Storytelling.
+
+            <span className="block max-w-full text-studio-red">
+              {hero?.accent || "Storytelling."}
             </span>
           </h1>
 
@@ -489,11 +869,8 @@ export default function Hero() {
               flex
               flex-col
               gap-8
-
               sm:mt-14
-
               md:mt-16
-
               lg:flex-row
               lg:items-end
               lg:justify-between
@@ -508,12 +885,9 @@ export default function Hero() {
                 text-xs
                 leading-6
                 text-white/65
-
                 sm:text-sm
                 sm:leading-6
-
                 md:text-base
-
                 lg:text-[15px]
               "
             >
@@ -531,7 +905,6 @@ export default function Hero() {
                 w-full
                 flex-col
                 gap-3
-
                 sm:w-auto
                 sm:flex-row
               "
@@ -557,10 +930,8 @@ export default function Hero() {
                   tracking-[0.18em]
                   transition-all
                   duration-300
-
                   hover:border-studio-red
                   hover:bg-studio-red
-
                   sm:min-w-[220px]
                 "
               >
@@ -599,10 +970,8 @@ export default function Hero() {
                   tracking-[0.18em]
                   transition-all
                   duration-300
-
                   hover:border-studio-red
                   hover:bg-studio-red
-
                   sm:min-w-[205px]
                 "
               >
@@ -643,6 +1012,7 @@ export default function Hero() {
           absolute
           bottom-6
           right-5
+          z-10
           hidden
           items-center
           gap-3
@@ -650,7 +1020,6 @@ export default function Hero() {
           uppercase
           tracking-[0.3em]
           text-white/40
-
           sm:right-7
           md:right-10
           lg:flex

@@ -14,7 +14,7 @@ import {
   EmptyState,
 } from "../components/AdminUI";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const categories = [
   "Film",
@@ -102,7 +102,7 @@ export default function ProjectManager() {
       setLoading(true);
       setError("");
 
-      const response = await fetch(`${API_URL}/projects`);
+      const response = await fetch(`${API_URL}/api/projects`);
 
       const result = await response.json();
 
@@ -238,7 +238,7 @@ export default function ProjectManager() {
 
       formData.append("file", file);
 
-      const response = await fetch(`${API_URL}/upload`, {
+      const response = await fetch(`${API_URL}/api/upload`, {
         method: "POST",
         body: formData,
       });
@@ -344,8 +344,8 @@ export default function ProjectManager() {
       const isEditing = Boolean(editing._id);
 
       const url = isEditing
-        ? `${API_URL}/projects/${editing._id}`
-        : `${API_URL}/projects`;
+        ? `${API_URL}/api/projects/${editing._id}`
+        : `${API_URL}/api/projects`;
 
       const method = isEditing ? "PUT" : "POST";
 
@@ -412,7 +412,7 @@ export default function ProjectManager() {
       setError("");
       setMessage("");
 
-      const response = await fetch(`${API_URL}/projects/${id}`, {
+      const response = await fetch(`${API_URL}/api/projects/${id}`, {
         method: "DELETE",
       });
 

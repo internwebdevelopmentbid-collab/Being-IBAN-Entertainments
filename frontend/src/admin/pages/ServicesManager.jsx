@@ -24,8 +24,9 @@ import {
    API CONFIG
 ================================================== */
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
 /* ==================================================
    HELPERS
@@ -41,28 +42,88 @@ const createSlug = (value) => {
 };
 
 /* ==================================================
+   API RESPONSE HELPER
+================================================== */
+
+const parseApiResponse = async (response) => {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+
+  return {
+    success: false,
+    message:
+      text?.trim() ||
+      `Server returned ${response.status} ${response.statusText}`,
+  };
+};
+
+/* ==================================================
+   API REQUEST HELPER
+================================================== */
+
+const apiRequest = async (url, options = {}) => {
+  const response = await fetch(url, {
+    ...options,
+
+    /*
+     * IMPORTANT:
+     * The admin authentication uses an HTTP-only cookie.
+     * The frontend and backend run on different ports, so
+     * credentials must explicitly be included.
+     */
+    credentials: "include",
+  });
+
+  const result = await parseApiResponse(response);
+
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.message ||
+        result.error ||
+        `Request failed with status ${response.status}`,
+    );
+  }
+
+  return result;
+};
+
+/* ==================================================
    NORMALIZE IMAGE
 ================================================== */
 
 const normalizeImage = (image) => {
   if (typeof image === "string") {
+    const url = image.trim();
+
+    if (!url) {
+      return null;
+    }
+
     return {
-      url: image,
+      url,
       publicId: "",
     };
   }
 
   if (image && typeof image === "object") {
+    const url = typeof image.url === "string" ? image.url.trim() : "";
+
+    if (!url) {
+      return null;
+    }
+
     return {
-      url: image.url || "",
-      publicId: image.publicId || "",
+      url,
+      publicId: typeof image.publicId === "string" ? image.publicId.trim() : "",
     };
   }
 
-  return {
-    url: "",
-    publicId: "",
-  };
+  return null;
 };
 
 /* ==================================================
@@ -74,7 +135,7 @@ const normalizeImages = (images) => {
     return [];
   }
 
-  return images.map(normalizeImage).filter((image) => image.url.trim() !== "");
+  return images.map(normalizeImage).filter(Boolean);
 };
 
 /* ==================================================
@@ -84,15 +145,16 @@ const normalizeImages = (images) => {
 const normalizeBrochure = (brochure) => {
   if (typeof brochure === "string") {
     return {
-      url: brochure,
+      url: brochure.trim(),
       publicId: "",
     };
   }
 
   if (brochure && typeof brochure === "object") {
     return {
-      url: brochure.url || "",
-      publicId: brochure.publicId || "",
+      url: typeof brochure.url === "string" ? brochure.url.trim() : "",
+      publicId:
+        typeof brochure.publicId === "string" ? brochure.publicId.trim() : "",
     };
   }
 
@@ -107,13 +169,14 @@ const normalizeBrochure = (brochure) => {
 ================================================== */
 
 const normalizeFeatures = (features) => {
-  if (!Array.isArray(features) || features.length === 0) {
-    return [""];
+  if (!Array.isArray(features)) {
+    return [];
   }
 
-  return features.map((feature) =>
-    typeof feature === "string" ? feature : String(feature ?? ""),
-  );
+  return features
+    .filter((feature) => typeof feature === "string")
+    .map((feature) => feature.trim())
+    .filter(Boolean);
 };
 
 /* ==================================================
@@ -143,22 +206,14 @@ export default function ServicesManager() {
     loadServices();
   }, []);
 
-  async function loadServices() {
+  const loadServices = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const response = await fetch(`${API_BASE_URL}/services`);
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.message || "Failed to fetch services");
-      }
+      const result = await apiRequest(`${API_BASE_URL}/api/services`, {
+        method: "GET",
+      });
 
       const normalizedServices = (result.services || []).map((service) => ({
         ...service,
@@ -181,7 +236,7 @@ export default function ServicesManager() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   /* ==================================================
      BLANK SERVICE
@@ -207,7 +262,7 @@ export default function ServicesManager() {
 
     images: [],
 
-    features: [""],
+    features: [],
 
     active: true,
 
@@ -251,10 +306,16 @@ export default function ServicesManager() {
   ================================================== */
 
   const updateField = (field, value) => {
-    setEditing((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setEditing((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [field]: value,
+      };
+    });
   };
 
   /* ==================================================
@@ -262,13 +323,23 @@ export default function ServicesManager() {
   ================================================== */
 
   const updateTitle = (value) => {
-    setEditing((current) => ({
-      ...current,
+    setEditing((current) => {
+      if (!current) {
+        return current;
+      }
 
-      title: value,
+      return {
+        ...current,
 
-      slug: current._id || current.slug ? current.slug : createSlug(value),
-    }));
+        title: value,
+
+        /*
+         * Automatically generate slug only for a new service
+         * until the user manually enters a slug.
+         */
+        slug: current._id || current.slug ? current.slug : createSlug(value),
+      };
+    });
   };
 
   /* ==================================================
@@ -277,7 +348,11 @@ export default function ServicesManager() {
 
   const updateFeature = (index, value) => {
     setEditing((current) => {
-      const features = [...current.features];
+      if (!current) {
+        return current;
+      }
+
+      const features = [...(current.features || [])];
 
       features[index] = value;
 
@@ -289,15 +364,25 @@ export default function ServicesManager() {
   };
 
   const addFeature = () => {
-    setEditing((current) => ({
-      ...current,
+    setEditing((current) => {
+      if (!current) {
+        return current;
+      }
 
-      features: [...(current.features || []), ""],
-    }));
+      return {
+        ...current,
+
+        features: [...(current.features || []), ""],
+      };
+    });
   };
 
   const removeFeature = (index) => {
     setEditing((current) => {
+      if (!current) {
+        return current;
+      }
+
       const features = (current.features || []).filter(
         (_, featureIndex) => featureIndex !== index,
       );
@@ -305,7 +390,7 @@ export default function ServicesManager() {
       return {
         ...current,
 
-        features: features.length > 0 ? features : [""],
+        features,
       };
     });
   };
@@ -321,17 +406,23 @@ export default function ServicesManager() {
       return;
     }
 
-    setEditing((current) => ({
-      ...current,
+    setEditing((current) => {
+      if (!current) {
+        return current;
+      }
 
-      images: [
-        ...(current.images || []),
-        {
-          url: url.trim(),
-          publicId: "",
-        },
-      ],
-    }));
+      return {
+        ...current,
+
+        images: [
+          ...(current.images || []),
+          {
+            url: url.trim(),
+            publicId: "",
+          },
+        ],
+      };
+    });
   };
 
   /* ==================================================
@@ -339,13 +430,19 @@ export default function ServicesManager() {
   ================================================== */
 
   const removeImage = (index) => {
-    setEditing((current) => ({
-      ...current,
+    setEditing((current) => {
+      if (!current) {
+        return current;
+      }
 
-      images: (current.images || []).filter(
-        (_, imageIndex) => imageIndex !== index,
-      ),
-    }));
+      return {
+        ...current,
+
+        images: (current.images || []).filter(
+          (_, imageIndex) => imageIndex !== index,
+        ),
+      };
+    });
   };
 
   /* ==================================================
@@ -362,6 +459,7 @@ export default function ServicesManager() {
     try {
       setUploading(true);
       setError("");
+      setSuccess("");
 
       const formData = new FormData();
 
@@ -369,35 +467,46 @@ export default function ServicesManager() {
 
       formData.append("folder", "services");
 
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const result = await apiRequest(`${API_BASE_URL}/api/upload`, {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Image upload failed");
-      }
+      /*
+       * Your upload endpoint returns:
+       *
+       * {
+       *   success: true,
+       *   file: {
+       *     url,
+       *     publicId,
+       *     ...
+       *   }
+       * }
+       */
 
       const uploadedFile = result.file;
 
-      const imageUrl = uploadedFile?.url;
-
-      if (!imageUrl) {
+      if (!uploadedFile?.url) {
         throw new Error("Cloudinary did not return an image URL.");
       }
 
       const imageObject = {
-        url: imageUrl,
-        publicId: uploadedFile?.publicId || "",
+        url: uploadedFile.url,
+        publicId: uploadedFile.publicId || "",
       };
 
-      setEditing((current) => ({
-        ...current,
+      setEditing((current) => {
+        if (!current) {
+          return current;
+        }
 
-        images: [...(current.images || []), imageObject],
-      }));
+        return {
+          ...current,
+
+          images: [...(current.images || []), imageObject],
+        };
+      });
     } catch (err) {
       console.error("Image upload error:", err);
 
@@ -440,6 +549,7 @@ export default function ServicesManager() {
     try {
       setUploading(true);
       setError("");
+      setSuccess("");
 
       const formData = new FormData();
 
@@ -447,28 +557,20 @@ export default function ServicesManager() {
 
       formData.append("folder", "brochures");
 
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const result = await apiRequest(`${API_BASE_URL}/api/upload`, {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Brochure upload failed");
-      }
-
       const uploadedFile = result.file;
 
-      const brochureUrl = uploadedFile?.url;
-
-      if (!brochureUrl) {
+      if (!uploadedFile?.url) {
         throw new Error("Cloudinary did not return a brochure URL.");
       }
 
       updateField("brochure", {
-        url: brochureUrl,
-        publicId: uploadedFile?.publicId || "",
+        url: uploadedFile.url,
+        publicId: uploadedFile.publicId || "",
       });
     } catch (err) {
       console.error("Brochure upload error:", err);
@@ -486,12 +588,16 @@ export default function ServicesManager() {
   ================================================== */
 
   const save = async () => {
-    if (!editing?.title?.trim()) {
+    if (!editing) {
+      return;
+    }
+
+    if (!editing.title?.trim()) {
       setError("Service title is required.");
       return;
     }
 
-    if (!editing?.slug?.trim()) {
+    if (!editing.slug?.trim()) {
       setError("Service slug is required.");
       return;
     }
@@ -507,9 +613,7 @@ export default function ServicesManager() {
 
       const normalizedImages = (editing.images || [])
         .map(normalizeImage)
-        .filter(
-          (image) => typeof image.url === "string" && image.url.trim() !== "",
-        )
+        .filter(Boolean)
         .map((image) => ({
           url: image.url.trim(),
           publicId: image.publicId || "",
@@ -538,7 +642,7 @@ export default function ServicesManager() {
       const payload = {
         title: editing.title.trim(),
 
-        slug: editing.slug.trim(),
+        slug: editing.slug.toLowerCase().trim(),
 
         showcaseTitle: editing.showcaseTitle?.trim() || "",
 
@@ -569,10 +673,10 @@ export default function ServicesManager() {
       const isEditing = Boolean(editing._id);
 
       const url = isEditing
-        ? `${API_BASE_URL}/services/${editing._id}`
-        : `${API_BASE_URL}/services`;
+        ? `${API_BASE_URL}/api/services/${editing._id}`
+        : `${API_BASE_URL}/api/services`;
 
-      const response = await fetch(url, {
+      const result = await apiRequest(url, {
         method: isEditing ? "PUT" : "POST",
 
         headers: {
@@ -582,24 +686,24 @@ export default function ServicesManager() {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to save service");
-      }
-
       /* -------------------------------------------
          NORMALIZE SAVED SERVICE
       -------------------------------------------- */
 
+      if (!result.service) {
+        throw new Error(
+          "Service was saved, but the server did not return the saved service.",
+        );
+      }
+
       const savedService = {
         ...result.service,
 
-        images: normalizeImages(result.service?.images),
+        images: normalizeImages(result.service.images),
 
-        brochure: normalizeBrochure(result.service?.brochure),
+        brochure: normalizeBrochure(result.service.brochure),
 
-        features: normalizeFeatures(result.service?.features),
+        features: normalizeFeatures(result.service.features),
       };
 
       /* -------------------------------------------
@@ -639,6 +743,10 @@ export default function ServicesManager() {
   ================================================== */
 
   const remove = async (id) => {
+    if (!id) {
+      return;
+    }
+
     if (!window.confirm("Delete this service?")) {
       return;
     }
@@ -647,15 +755,9 @@ export default function ServicesManager() {
       setError("");
       setSuccess("");
 
-      const response = await fetch(`${API_BASE_URL}/services/${id}`, {
+      await apiRequest(`${API_BASE_URL}/api/services/${id}`, {
         method: "DELETE",
       });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to delete service");
-      }
 
       setServices((current) => current.filter((service) => service._id !== id));
 
@@ -798,9 +900,7 @@ export default function ServicesManager() {
       {editing && (
         <div className="fixed inset-0 z-[60000] overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
           <div className="mx-auto max-w-4xl border border-white/10 bg-[#0b0b0b]">
-            {/* -------------------------------------------
-                HEADER
-            -------------------------------------------- */}
+            {/* HEADER */}
 
             <div className="flex items-center justify-between border-b border-white/10 p-5">
               <div>
@@ -811,14 +911,16 @@ export default function ServicesManager() {
                 </p>
               </div>
 
-              <button type="button" onClick={() => setEditing(null)}>
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                disabled={saving || uploading}
+              >
                 <X size={20} className="text-white/40" />
               </button>
             </div>
 
-            {/* -------------------------------------------
-                BODY
-            -------------------------------------------- */}
+            {/* BODY */}
 
             <div className="space-y-6 p-5">
               {/* TITLE + SLUG */}
@@ -872,9 +974,7 @@ export default function ServicesManager() {
                 placeholder="Complete service description..."
               />
 
-              {/* -------------------------------------------
-                  BROCHURE
-              -------------------------------------------- */}
+              {/* BROCHURE */}
 
               <div>
                 <label className="mb-2 block text-xs font-medium text-white/60">
@@ -889,17 +989,17 @@ export default function ServicesManager() {
 
                     <input
                       type="file"
-                      accept=".pdf"
+                      accept=".pdf,application/pdf"
                       onChange={uploadBrochure}
                       className="hidden"
-                      disabled={uploading}
+                      disabled={uploading || saving}
                     />
                   </label>
 
                   <Button
                     variant="secondary"
                     onClick={addBrochureUrl}
-                    disabled={uploading}
+                    disabled={uploading || saving}
                   >
                     <FileText size={15} />
                     Use URL
@@ -934,9 +1034,7 @@ export default function ServicesManager() {
                 )}
               </div>
 
-              {/* -------------------------------------------
-                  IMAGES
-              -------------------------------------------- */}
+              {/* IMAGES */}
 
               <div>
                 <div className="mb-3 flex items-center justify-between">
@@ -954,7 +1052,7 @@ export default function ServicesManager() {
 
                   <label
                     className={`flex h-28 w-28 flex-col items-center justify-center gap-2 border border-dashed border-white/20 text-white/40 hover:border-white/40 hover:text-white ${
-                      uploading
+                      uploading || saving
                         ? "cursor-not-allowed opacity-50"
                         : "cursor-pointer"
                     }`}
@@ -970,7 +1068,7 @@ export default function ServicesManager() {
                       accept="image/jpeg,image/jpg,image/png,image/webp,image/avif"
                       onChange={uploadImage}
                       className="hidden"
-                      disabled={uploading}
+                      disabled={uploading || saving}
                     />
                   </label>
 
@@ -979,7 +1077,7 @@ export default function ServicesManager() {
                   <button
                     type="button"
                     onClick={addImageUrl}
-                    disabled={uploading}
+                    disabled={uploading || saving}
                     className="flex h-28 w-28 flex-col items-center justify-center gap-2 border border-dashed border-white/20 text-white/40 hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Plus size={22} />
@@ -992,6 +1090,10 @@ export default function ServicesManager() {
                   {(editing.images || []).map((image, index) => {
                     const normalizedImage = normalizeImage(image);
 
+                    if (!normalizedImage) {
+                      return null;
+                    }
+
                     return (
                       <div
                         key={`${normalizedImage.url}-${index}`}
@@ -1001,6 +1103,9 @@ export default function ServicesManager() {
                           src={normalizedImage.url}
                           alt={`Service ${index + 1}`}
                           className="h-full w-full object-cover"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
                         />
 
                         {/* REMOVE */}
@@ -1026,9 +1131,7 @@ export default function ServicesManager() {
                 </div>
               </div>
 
-              {/* -------------------------------------------
-                  FEATURES
-              -------------------------------------------- */}
+              {/* FEATURES */}
 
               <div>
                 <div className="mb-3 flex items-center justify-between">
@@ -1069,9 +1172,7 @@ export default function ServicesManager() {
                 </div>
               </div>
 
-              {/* -------------------------------------------
-                  SETTINGS
-              -------------------------------------------- */}
+              {/* SETTINGS */}
 
               <div className="grid gap-5 md:grid-cols-3">
                 <Input
@@ -1091,7 +1192,6 @@ export default function ServicesManager() {
                   }
                 >
                   <option>Published</option>
-
                   <option>Draft</option>
                 </Select>
 
@@ -1103,15 +1203,12 @@ export default function ServicesManager() {
                   }
                 >
                   <option>Yes</option>
-
                   <option>No</option>
                 </Select>
               </div>
             </div>
 
-            {/* -------------------------------------------
-                FOOTER
-            -------------------------------------------- */}
+            {/* FOOTER */}
 
             <div className="flex justify-end gap-3 border-t border-white/10 p-5">
               <Button
