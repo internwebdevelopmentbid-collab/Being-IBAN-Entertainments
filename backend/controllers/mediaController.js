@@ -1,9 +1,7 @@
 import fs from "fs/promises";
 
 import Media from "../models/Media.js";
-
 import cloudinary from "../config/cloudinary.js";
-
 import { uploadToCloudinary } from "../utils/uploadCloudinary.js";
 
 /* ==================================================
@@ -63,20 +61,6 @@ const normalizeType = (value) => {
    GET ALL MEDIA
 ================================================== */
 
-/*
-GET /api/media
-
-Optional:
-
-GET /api/media?page=about
-
-GET /api/media?page=portfolio
-
-GET /api/media?page=portfolio&type=cover
-
-GET /api/media?page=portfolio&type=gallery
-*/
-
 export const getMedia = async (req, res) => {
   try {
     const { page, type, active } = req.query;
@@ -106,9 +90,6 @@ export const getMedia = async (req, res) => {
         });
       }
 
-      /*
-       * Gallery is only valid for portfolio.
-       */
       if (
         normalizedType === "gallery" &&
         filter.page &&
@@ -127,11 +108,13 @@ export const getMedia = async (req, res) => {
       filter.active = active === "true";
     }
 
-    const media = await Media.find(filter).sort({
-      type: 1,
-      order: 1,
-      createdAt: 1,
-    });
+    const media = await Media.find(filter)
+      .sort({
+        type: 1,
+        order: 1,
+        createdAt: 1,
+      })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -144,7 +127,7 @@ export const getMedia = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch media.",
-      error: error.message,
+      error: error?.message || "Unknown server error.",
     });
   }
 };
@@ -174,7 +157,7 @@ export const getMediaById = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch media.",
-      error: error.message,
+      error: error?.message || "Unknown server error.",
     });
   }
 };
@@ -183,33 +166,23 @@ export const getMediaById = async (req, res) => {
    CREATE MEDIA
 ================================================== */
 
-/*
-POST /api/media
-
-multipart/form-data
-
-file
-page
-type
-title
-alt
-
-For non-portfolio pages:
-
-type is automatically forced to "cover".
-
-For portfolio:
-
-type can be:
-
-cover
-gallery
-*/
-
 export const createMedia = async (req, res) => {
   let temporaryFile = null;
 
+  let uploadedPublicId = null;
+  let uploadedResourceType = "image";
+
   try {
+    console.log("========================================");
+    console.log("CREATE MEDIA");
+    console.log("req.body:", req.body);
+    console.log("req.file:", req.file);
+    console.log("========================================");
+
+    /* --------------------------------------------------
+       FILE CHECK
+    -------------------------------------------------- */
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -219,24 +192,30 @@ export const createMedia = async (req, res) => {
 
     temporaryFile = req.file.path;
 
+    /* --------------------------------------------------
+       PAGE
+    -------------------------------------------------- */
+
     const page = normalizePage(req.body.page);
 
     if (!ALLOWED_PAGES.includes(page)) {
       await cleanupTempFile(temporaryFile);
+      temporaryFile = null;
 
       return res.status(400).json({
         success: false,
-        message: "Invalid media page.",
+        message: `Invalid media page: ${page}`,
       });
     }
 
+    /* --------------------------------------------------
+       TYPE
+    -------------------------------------------------- */
+
     /*
-     * IMPORTANT:
-     *
-     * Only portfolio can choose the media type.
-     *
-     * Every other page is automatically cover.
+     * Every non-portfolio page can only have a cover.
      */
+
     let type = "cover";
 
     if (page === "portfolio") {
@@ -244,94 +223,151 @@ export const createMedia = async (req, res) => {
 
       if (!ALLOWED_TYPES.includes(type)) {
         await cleanupTempFile(temporaryFile);
+        temporaryFile = null;
 
         return res.status(400).json({
           success: false,
-          message: "Invalid portfolio media type.",
+          message: `Invalid portfolio media type: ${type}`,
         });
       }
     }
 
-    /*
-     * Cover images must be unique per page.
-     *
-     * If a cover already exists, reject creation.
-     *
-     * The frontend should use UPDATE when replacing it.
-     */
+    /* --------------------------------------------------
+       DUPLICATE COVER CHECK
+    -------------------------------------------------- */
+
     if (type === "cover") {
       const existingCover = await Media.findOne({
         page,
         type: "cover",
-      });
+      })
+        .select("_id page type title url")
+        .lean();
 
       if (existingCover) {
         await cleanupTempFile(temporaryFile);
+        temporaryFile = null;
 
         return res.status(409).json({
           success: false,
           message:
-            "A cover image already exists for this page. Update the existing cover image instead.",
+            `A cover image already exists for "${page}". ` +
+            "Edit the existing cover image instead of creating another one.",
+          existingId: existingCover._id,
         });
       }
     }
 
-    /*
-     * Gallery images are unlimited.
-     *
-     * Put the next gallery image at the end.
-     */
+    /* --------------------------------------------------
+       GALLERY ORDER
+    -------------------------------------------------- */
+
     let order = 0;
 
     if (type === "gallery") {
       const lastGallery = await Media.findOne({
         page: "portfolio",
         type: "gallery",
-      }).sort({
-        order: -1,
-      });
+      })
+        .sort({
+          order: -1,
+        })
+        .lean();
 
-      order = lastGallery ? lastGallery.order + 1 : 0;
+      order = lastGallery ? Number(lastGallery.order || 0) + 1 : 0;
     }
 
-    const resourceType = req.file.mimetype.startsWith("video/")
+    /* --------------------------------------------------
+       CLOUDINARY RESOURCE TYPE
+    -------------------------------------------------- */
+
+    uploadedResourceType = req.file.mimetype?.startsWith("video/")
       ? "video"
       : "image";
 
     const folder = `media/${page}/${type}`;
 
+    console.log("Uploading media to Cloudinary:");
+    console.log({
+      folder,
+      resourceType: uploadedResourceType,
+      filePath: temporaryFile,
+    });
+
+    /* --------------------------------------------------
+       CLOUDINARY UPLOAD
+    -------------------------------------------------- */
+
     const result = await uploadToCloudinary(
       temporaryFile,
       folder,
-      resourceType,
+      uploadedResourceType,
     );
 
-    const media = await Media.create({
+    console.log("Cloudinary upload result:", result);
+
+    if (!result) {
+      throw new Error("Cloudinary returned no upload result.");
+    }
+
+    if (!result.secure_url) {
+      throw new Error("Cloudinary upload succeeded but secure_url is missing.");
+    }
+
+    if (!result.public_id) {
+      throw new Error("Cloudinary upload succeeded but public_id is missing.");
+    }
+
+    uploadedPublicId = result.public_id;
+
+    /* --------------------------------------------------
+       DATABASE RECORD
+    -------------------------------------------------- */
+
+    const mediaData = {
       page,
       type,
 
-      title: req.body.title || "",
-      alt: req.body.alt || "",
+      title: String(req.body.title || "").trim(),
+
+      alt: String(req.body.alt || "").trim(),
 
       url: result.secure_url,
+
       publicId: result.public_id,
 
-      resourceType: result.resource_type || resourceType,
+      resourceType: result.resource_type || uploadedResourceType,
+
       format: result.format || "",
 
-      width: result.width || null,
-      height: result.height || null,
-      bytes: result.bytes || null,
+      width: result.width !== undefined ? result.width : null,
+
+      height: result.height !== undefined ? result.height : null,
+
+      bytes: result.bytes !== undefined ? result.bytes : null,
 
       active: true,
+
       order,
-    });
+    };
+
+    console.log("Creating Media document:");
+    console.log(mediaData);
+
+    const media = await Media.create(mediaData);
+
+    /* --------------------------------------------------
+       CLEAN TEMP FILE
+    -------------------------------------------------- */
 
     await cleanupTempFile(temporaryFile);
     temporaryFile = null;
 
+    console.log("Media created successfully:", media._id.toString());
+
     return res.status(201).json({
       success: true,
+
       message:
         type === "gallery"
           ? "Gallery image added successfully."
@@ -340,14 +376,67 @@ export const createMedia = async (req, res) => {
       data: media,
     });
   } catch (error) {
-    console.error("Create media error:", error);
+    console.error("========================================");
+    console.error("CREATE MEDIA ERROR");
+    console.error("name:", error?.name);
+    console.error("message:", error?.message);
+    console.error("code:", error?.code);
+    console.error("keyPattern:", error?.keyPattern);
+    console.error("keyValue:", error?.keyValue);
+    console.error("stack:", error?.stack);
+    console.error("========================================");
+
+    /* --------------------------------------------------
+       CLEAN CLOUDINARY ASSET IF DB CREATION FAILED
+    -------------------------------------------------- */
+
+    if (uploadedPublicId) {
+      await deleteCloudinaryAsset(uploadedPublicId, uploadedResourceType);
+    }
+
+    /* --------------------------------------------------
+       CLEAN TEMP FILE
+    -------------------------------------------------- */
 
     await cleanupTempFile(temporaryFile);
 
+    /* --------------------------------------------------
+       DUPLICATE KEY
+    -------------------------------------------------- */
+
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A media item with this page/type already exists. " +
+          "For cover images, edit the existing image instead.",
+        error: error.message,
+        keyPattern: error.keyPattern,
+        keyValue: error.keyValue,
+      });
+    }
+
+    /* --------------------------------------------------
+       MONGOOSE VALIDATION
+    -------------------------------------------------- */
+
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "Media validation failed.",
+        error: error.message,
+        errors: error.errors,
+      });
+    }
+
+    /* --------------------------------------------------
+       GENERAL ERROR
+    -------------------------------------------------- */
+
     return res.status(500).json({
       success: false,
-      message: "Failed to create media.",
-      error: error.message,
+      message: error?.message || "Failed to create media.",
+      error: error?.message || "Unknown server error.",
     });
   }
 };
@@ -355,19 +444,6 @@ export const createMedia = async (req, res) => {
 /* ==================================================
    UPDATE MEDIA
 ================================================== */
-
-/*
-PUT /api/media/:id
-
-multipart/form-data
-
-file       optional
-title      optional
-alt        optional
-active     optional
-
-The page/type normally should not be changed here.
-*/
 
 export const updateMedia = async (req, res) => {
   let temporaryFile = null;
@@ -384,26 +460,28 @@ export const updateMedia = async (req, res) => {
 
     temporaryFile = req.file?.path || null;
 
-    /*
-     * Update text fields.
-     */
+    /* --------------------------------------------------
+       TEXT FIELDS
+    -------------------------------------------------- */
+
     if (req.body.title !== undefined) {
-      media.title = req.body.title;
+      media.title = String(req.body.title).trim();
     }
 
     if (req.body.alt !== undefined) {
-      media.alt = req.body.alt;
+      media.alt = String(req.body.alt).trim();
     }
 
     if (req.body.active !== undefined) {
       media.active = req.body.active === true || req.body.active === "true";
     }
 
-    /*
-     * Replace image if a new file was supplied.
-     */
+    /* --------------------------------------------------
+       REPLACE FILE
+    -------------------------------------------------- */
+
     if (req.file) {
-      const resourceType = req.file.mimetype.startsWith("video/")
+      const resourceType = req.file.mimetype?.startsWith("video/")
         ? "video"
         : "image";
 
@@ -415,28 +493,42 @@ export const updateMedia = async (req, res) => {
         resourceType,
       );
 
+      if (!result?.secure_url || !result?.public_id) {
+        throw new Error(
+          "Cloudinary replacement upload did not return valid asset information.",
+        );
+      }
+
       /*
-       * Delete previous Cloudinary file only after
-       * the replacement upload succeeded.
+       * Delete old asset only after the new upload
+       * succeeds.
        */
+
       await deleteCloudinaryAsset(
         media.publicId,
         media.resourceType || "image",
       );
 
       media.url = result.secure_url;
+
       media.publicId = result.public_id;
 
       media.resourceType = result.resource_type || resourceType;
 
       media.format = result.format || "";
 
-      media.width = result.width || null;
-      media.height = result.height || null;
-      media.bytes = result.bytes || null;
+      media.width = result.width !== undefined ? result.width : null;
+
+      media.height = result.height !== undefined ? result.height : null;
+
+      media.bytes = result.bytes !== undefined ? result.bytes : null;
     }
 
-    await media.save();
+    /* --------------------------------------------------
+       SAVE
+    -------------------------------------------------- */
+
+    const updatedMedia = await media.save();
 
     await cleanupTempFile(temporaryFile);
     temporaryFile = null;
@@ -444,17 +536,34 @@ export const updateMedia = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Media updated successfully.",
-      data: media,
+      data: updatedMedia,
     });
   } catch (error) {
     console.error("Update media error:", error);
 
     await cleanupTempFile(temporaryFile);
 
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A media item with these values already exists.",
+        error: error.message,
+      });
+    }
+
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "Media validation failed.",
+        error: error.message,
+        errors: error.errors,
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: "Failed to update media.",
-      error: error.message,
+      message: error?.message || "Failed to update media.",
+      error: error?.message || "Unknown server error.",
     });
   }
 };
@@ -474,19 +583,22 @@ export const deleteMedia = async (req, res) => {
       });
     }
 
-    /*
-     * Delete from Cloudinary.
-     */
+    /* --------------------------------------------------
+       CLOUDINARY
+    -------------------------------------------------- */
+
     await deleteCloudinaryAsset(media.publicId, media.resourceType || "image");
 
-    /*
-     * Delete database record.
-     */
+    /* --------------------------------------------------
+       DATABASE
+    -------------------------------------------------- */
+
     await Media.findByIdAndDelete(req.params.id);
 
-    /*
-     * Re-number portfolio gallery after deletion.
-     */
+    /* --------------------------------------------------
+       REORDER GALLERY
+    -------------------------------------------------- */
+
     if (media.page === "portfolio" && media.type === "gallery") {
       const gallery = await Media.find({
         page: "portfolio",
@@ -499,7 +611,9 @@ export const deleteMedia = async (req, res) => {
       await Promise.all(
         gallery.map((item, index) =>
           Media.findByIdAndUpdate(item._id, {
-            order: index,
+            $set: {
+              order: index,
+            },
           }),
         ),
       );
@@ -514,8 +628,8 @@ export const deleteMedia = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to delete media.",
-      error: error.message,
+      message: error?.message || "Failed to delete media.",
+      error: error?.message || "Unknown server error.",
     });
   }
 };
@@ -523,25 +637,6 @@ export const deleteMedia = async (req, res) => {
 /* ==================================================
    REORDER PORTFOLIO GALLERY
 ================================================== */
-
-/*
-PATCH /api/media/reorder
-
-Body:
-
-{
-  "items": [
-    {
-      "id": "media-id-1",
-      "order": 0
-    },
-    {
-      "id": "media-id-2",
-      "order": 1
-    }
-  ]
-}
-*/
 
 export const reorderMedia = async (req, res) => {
   try {
@@ -563,17 +658,15 @@ export const reorderMedia = async (req, res) => {
       }
     }
 
-    /*
-     * Make sure only portfolio gallery media
-     * can be reordered.
-     */
     const ids = items.map((item) => item.id);
 
     const galleryItems = await Media.find({
       _id: {
         $in: ids,
       },
+
       page: "portfolio",
+
       type: "gallery",
     });
 
@@ -612,8 +705,8 @@ export const reorderMedia = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to reorder gallery.",
-      error: error.message,
+      message: error?.message || "Failed to reorder gallery.",
+      error: error?.message || "Unknown server error.",
     });
   }
 };

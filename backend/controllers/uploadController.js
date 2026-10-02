@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 
-import { uploadToCloudinary } from "../utils/cloudinaryUpload.js";
+import { uploadToCloudinary } from "../utils/uploadCloudinary.js";
 
 export const uploadMedia = async (req, res) => {
   let uploadedFilePath = null;
