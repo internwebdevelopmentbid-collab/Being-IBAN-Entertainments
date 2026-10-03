@@ -438,7 +438,7 @@ export default function Careers() {
           </div>
 
           <a
-            href="/contact"
+            href="/contact-us"
             className="group inline-flex items-center gap-4 border border-black bg-black px-7 py-4 text-sm font-bold uppercase tracking-[0.15em] text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition-all duration-300 hover:bg-black hover:text-studio-red"
           >
             <span>Send Your Portfolio</span>

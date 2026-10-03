@@ -5,12 +5,12 @@ import { Link, useLocation } from "react-router-dom";
 
 const navigation = [
   { name: "Home", path: "/" },
-  { name: "About Us", path: "/about" },
+  { name: "About Us", path: "/about-us" },
   { name: "Services", path: "/services" },
   { name: "Portfolio", path: "/portfolio" },
   { name: "Careers", path: "/careers" },
   { name: "Blog", path: "/blog" },
-  { name: "Contact", path: "/contact" },
+  { name: "Contact", path: "/contact-us" },
 ];
 
 export default function Navbar() {
@@ -428,7 +428,7 @@ export default function Navbar() {
                 "
               >
                 <Link
-                  to="/contact"
+                  to="/contact-us"
                   onClick={() => setMobileOpen(false)}
                   className="
                     flex
@@ -451,7 +451,7 @@ export default function Navbar() {
                     hover:text-black
                   "
                 >
-                  Start a Project
+                  Talk to Us
                   <ArrowUpRight size={20} />
                 </Link>
               </motion.div>

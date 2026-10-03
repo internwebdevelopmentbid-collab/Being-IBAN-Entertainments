@@ -507,7 +507,7 @@ export default function BlogPost() {
 
           <div className="mt-10 flex flex-col gap-6 sm:flex-row sm:items-center">
             <Link
-              to="/contact"
+              to="/contact-us"
               className="group inline-flex items-center justify-between gap-10 bg-black px-7 py-5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all duration-300 hover:bg-white hover:text-black"
             >
               Start a Project

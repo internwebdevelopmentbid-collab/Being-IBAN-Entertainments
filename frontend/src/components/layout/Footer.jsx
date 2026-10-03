@@ -66,7 +66,7 @@ export default function Footer() {
             </p>
 
             <Link
-              to="/contact"
+              to="/contact-us"
               className="group mt-9 inline-flex items-center gap-3 border-b-2 border-white pb-2.5 text-sm font-bold uppercase tracking-[0.15em] transition-all duration-300 hover:border-red-600 hover:text-red-500"
             >
               Start a conversation
@@ -88,7 +88,7 @@ export default function Footer() {
 
             <div className="flex flex-col gap-4">
               <Link
-                to="/about"
+                to="/about-us"
                 className="group flex items-center text-base font-medium text-white/60 transition-colors duration-300 hover:text-white"
               >
                 <span className="mr-3 h-[2px] w-0 bg-red-600 transition-all duration-300 group-hover:w-5" />
@@ -145,7 +145,7 @@ export default function Footer() {
                 href="mailto:contact@beingibanentertainments.com"
                 className="text-base font-medium text-white/60 transition-colors duration-300 hover:text-red-500"
               >
-                contact@beingibanentertainments.com
+                beingibanentertainments@gmail.com
               </a>
 
               {/* FACEBOOK */}

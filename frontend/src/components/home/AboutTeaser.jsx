@@ -78,7 +78,7 @@ export default function AboutTeaser() {
               </p>
 
               <Link
-                to="/about"
+                to="/about-us"
                 className="mt-10 inline-block border-b border-white pb-2 text-sm font-bold uppercase tracking-wider"
               >
                 More About Us →

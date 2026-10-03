@@ -178,7 +178,7 @@ export default function Contact() {
                     href="mailto:contact@beingibanentertainments.com"
                     className="break-all transition-colors duration-300 hover:text-studio-red"
                   >
-                    contact@beingibanentertainments.com
+                    beingibanentertainments@gmail.com
                   </a>
                 </div>
               </div>
@@ -199,7 +199,7 @@ export default function Contact() {
                     href="tel:+916293764908"
                     className="transition-colors duration-300 hover:text-studio-red"
                   >
-                    +91 629 376 4908
+                    +91 6292 334 685
                   </a>
                 </div>
               </div>

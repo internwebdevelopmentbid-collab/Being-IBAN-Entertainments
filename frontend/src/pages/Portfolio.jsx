@@ -823,7 +823,7 @@ export default function Portfolio() {
             </h2>
 
             <Link
-              to="/contact"
+              to="/contact-us"
               className="mt-10 inline-flex bg-red-500 px-8 py-4 font-semibold transition hover:bg-red-600"
             >
               Start a Project →

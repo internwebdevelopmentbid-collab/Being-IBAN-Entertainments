@@ -17,7 +17,7 @@ export default function ContactCTA() {
         </h2>
 
         <Link
-          to="/contact"
+          to="/contact-us"
           className="mt-12 inline-flex px-8 py-5 text-sm font-bold bg-studio-red uppercase tracking-wider text-black transition hover:text-white"
         >
           Contact Us →

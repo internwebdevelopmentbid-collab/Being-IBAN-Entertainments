@@ -609,7 +609,7 @@ export default function Services() {
             </p>
 
             <Link
-              to="/contact"
+              to="/contact-us"
               className="group mt-8 inline-flex items-center gap-5 border border-black bg-black px-7 py-4 text-sm font-bold uppercase tracking-[0.16em] text-white transition-all duration-300 hover:border-studio-red hover:bg-studio-red"
             >
               <span>Start a Conversation</span>
