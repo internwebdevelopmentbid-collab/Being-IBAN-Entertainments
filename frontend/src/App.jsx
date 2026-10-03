@@ -36,7 +36,7 @@ function PublicLayout() {
 
           {/* WEBSITE */}
 
-          <Route path="/about" element={<About />} />
+          <Route path="/about-us" element={<About />} />
 
           <Route path="/services" element={<Services />} />
 
@@ -44,7 +44,7 @@ function PublicLayout() {
 
           <Route path="/careers" element={<Careers />} />
 
-          <Route path="/contact" element={<Contact />} />
+          <Route path="/contact-us" element={<Contact />} />
 
           {/* BLOG */}
 
